@@ -24,18 +24,33 @@ Causal attention, `B=1 H=8 D=64`, fp16, NVIDIA A100 80GB. Each cell is
 **wall-clock / peak device memory**, where peak is
 `torch.cuda.max_memory_allocated()`.
 
-The two Stream-CQSA columns are *fixed* decomposition depths, shown so the
-trade curve is visible. In normal use you do not choose them — see
+Three Stream-CQSA configurations appear, and the distinction matters:
+
+| column | decomposition depth | fp32 accumulator | what it is for |
+|---|---|---|---|
+| `itr=1` | **fixed** at 1 | **on GPU** | tracing the trade curve at a pinned depth |
+| `itr=2` | **fixed** at 2 | **on GPU** | as above, one step deeper |
+| `itr=auto`, acc=CPU | **automatic** | **on host** | **the configuration you should actually use** |
+
+The two fixed-depth columns are measurements, not recommendations — they exist
+so the time/memory trade is visible as a curve. The third column is the shipped
+default (`stream_cqsa_auto`): it picks the depth itself and moves the fp32
+accumulator off the device, which removes the one O(N) device term that no
+amount of decomposition can shrink. **Those runs are still in the queue**; the
+cells are marked *pending* rather than estimated.
+
+In normal use you never pick a depth yourself — see
 [Let it choose the depth](#let-it-choose-the-depth).
 
 ### Backward
 
-| N | SDPA | SDPA (mem-eff.) | FlashAttention-2 | Stream-CQSA `itr=1` | Stream-CQSA `itr=2` |
-|---|---|---|---|---|---|
-| **1M**  | 26 s / 12.1 GiB | 78 s / 11.1 GiB | 25 s / 10.1 GiB | 57 s / 7.6 GiB | 68 s / **4.4 GiB** |
-| **2M**  | 106 s / 24.1 GiB | 3 860 s / 22.1 GiB | 101 s / 20.1 GiB | 218 s / 15.3 GiB | 262 s / **8.9 GiB** |
-| **4M**  | 429 s / 48.3 GiB | 15 421 s / 44.3 GiB | 407 s / 40.3 GiB | 854 s / 30.5 GiB | 998 s / **17.7 GiB** |
-| **8M**  | **OOM** | **OOM** | **OOM** | 3 372 s / 61.1 GiB | 3 895 s / **35.5 GiB** |
+| N | SDPA | SDPA (mem-eff.) | FlashAttention-2 | Stream-CQSA `itr=1` acc=GPU | Stream-CQSA `itr=2` acc=GPU | Stream-CQSA `itr=auto` acc=CPU |
+|---|---|---|---|---|---|---|
+| **1M**  | 26 s / 12.1 GiB | 78 s / 11.1 GiB | 25 s / 10.1 GiB | 57 s / 7.6 GiB | 68 s / **4.4 GiB** | *pending* |
+| **2M**  | 106 s / 24.1 GiB | 3 860 s / 22.1 GiB | 101 s / 20.1 GiB | 218 s / 15.3 GiB | 262 s / **8.9 GiB** | *pending* |
+| **4M**  | 429 s / 48.3 GiB | 15 421 s / 44.3 GiB | 407 s / 40.3 GiB | 854 s / 30.5 GiB | 998 s / **17.7 GiB** | *pending* |
+| **8M**  | **OOM** | **OOM** | **OOM** | 3 372 s / 61.1 GiB | 3 895 s / **35.5 GiB** | *pending* |
+| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *not run* | *pending* |
 
 **This is where the method pays off.** At 8M every baseline is out of memory and
 Stream-CQSA finishes, on the same card with the same numerics. And it is not
@@ -44,17 +59,21 @@ FlashAttention-2's 40.3 GiB — **2.3× less peak memory** — because raising t
 depth shrinks the in-flight working set while the inputs stream from host
 memory. The price is **2.1–2.7×** the time.
 
+At 16M even the acc=GPU configuration runs out: the fp32 accumulator is itself
+O(N) on the device. That is exactly the term the acc=CPU column removes, and
+why it is the last column standing.
+
 ### Forward
 
-| N | SDPA | SDPA (mem-eff.) | FlashAttention-2 | Stream-CQSA `itr=1` | Stream-CQSA `itr=2` |
-|---|---|---|---|---|---|
-| **1M**  | 8 s / 5.0 GiB | 15 s / 5.0 GiB | 8 s / 5.0 GiB | 14 s / 6.5 GiB | 15 s / **4.2 GiB** |
-| **2M**  | 32 s / 10.1 GiB | 61 s / 10.0 GiB | 32 s / 10.1 GiB | 53 s / 13.0 GiB | 64 s / **8.3 GiB** |
-| **4M**  | 131 s / 20.1 GiB | 245 s / 20.0 GiB | 130 s / 20.1 GiB | 203 s / 25.9 GiB | 237 s / **16.7 GiB** |
-| **8M**  | 520 s / 40.3 GiB | 966 s / 40.0 GiB | 532 s / 40.3 GiB | 796 s / 51.8 GiB | 907 s / **33.3 GiB** |
-| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *not run* |
+| N | SDPA | SDPA (mem-eff.) | FlashAttention-2 | Stream-CQSA `itr=1` acc=GPU | Stream-CQSA `itr=2` acc=GPU | Stream-CQSA `itr=auto` acc=CPU |
+|---|---|---|---|---|---|---|
+| **1M**  | 8 s / 5.0 GiB | 15 s / 5.0 GiB | 8 s / 5.0 GiB | 14 s / 6.5 GiB | 15 s / **4.2 GiB** | *pending* |
+| **2M**  | 32 s / 10.1 GiB | 61 s / 10.0 GiB | 32 s / 10.1 GiB | 53 s / 13.0 GiB | 64 s / **8.3 GiB** | *pending* |
+| **4M**  | 131 s / 20.1 GiB | 245 s / 20.0 GiB | 130 s / 20.1 GiB | 203 s / 25.9 GiB | 237 s / **16.7 GiB** | *pending* |
+| **8M**  | 520 s / 40.3 GiB | 966 s / 40.0 GiB | 532 s / 40.3 GiB | 796 s / 51.8 GiB | 907 s / **33.3 GiB** | *pending* |
+| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *not run* | *pending* |
 
-**The forward story is more modest, and worth stating plainly.** In this
+**The forward story is more modest, and worth stating plainly.** In the acc=GPU
 configuration Stream-CQSA does *not* extend the forward's OOM boundary: every
 method here reaches 8M and fails at 16M. What it buys is headroom at a given N
 — 33.3 GiB against FlashAttention-2's 40.3 GiB at 8M (**0.83×**) — for
@@ -63,15 +82,117 @@ baselines (1.29×), because the fp32 accumulator is an extra O(N) device term.
 
 The reason is structural: the forward's peak is dominated by the inputs and the
 accumulator, both O(N) on the device, and neither shrinks with depth. Moving the
-accumulator to the host (`accumulate_on_gpu=False`) removes that term and is
-what should carry the forward past 16M; those runs are still in the queue and
-the table will be updated when they land, rather than claimed now.
+accumulator to the host is what should carry the forward past 16M — the pending
+column.
 
 ![memory and wall-clock across N](docs/figures/fig_mem_time_fp16.jpg)
 
+### What it costs
+
+Below the OOM boundary, Stream-CQSA is **slower and, in the forward, uses more
+device memory** than the baselines it is meant to rescue. That is the trade, and
+the repository does not hide it:
+
+Ratios against FlashAttention-2 over N = 1M–8M, fp16 (min–max across N):
+
+| | | time | peak memory |
+|---|---|--:|--:|
+| forward | `itr=1` | 1.49–1.81× | 1.29× |
+| forward | `itr=2` | 1.70–1.99× | **0.83×** |
+| backward | `itr=1` | 2.10–2.26× | 0.76× |
+| backward | `itr=2` | 2.45–2.70× | **0.44×** |
+
+The memory ratios are strikingly constant across N — the decomposition shrinks
+the working set by a fixed factor set by `itr`, not by anything N-dependent.
+
+**Use FlashAttention-2 when it fits.** Reach for Stream-CQSA when it does not,
+or when you need the backward's memory headroom more than you need the 2×.
+
+One incidental finding worth flagging: PyTorch's **memory-efficient SDPA backend
+is a severe outlier in the backward** — 15 421 s at 4M against FlashAttention-2's
+407 s, a factor of 38 — while using *more* memory than Stream-CQSA `itr=2`. If
+you are reaching for that backend for long-context training, measure it.
+
+### Accuracy
+
+Every number is measured **against a float64 reference**, not against SDPA —
+SDPA is one of the methods under test, not the yardstick. N=8192, 10 seeds.
+
+**Forward** — relative error vs float64:
+
+| method | fp16 | bf16 |
+|---|--:|--:|
+| SDPA | 2.689e-04 | 2.168e-03 |
+| FlashAttention-2 | 2.689e-04 | 2.168e-03 |
+| **Stream-CQSA `itr=1`** | **1.705e-04** | **1.375e-03** |
+| **Stream-CQSA `itr=2`** | **1.681e-04** | **1.356e-03** |
+
+**Backward** — relative error vs a *dense* float64 reference:
+
+| method | fp16 | bf16 |
+|---|--:|--:|
+| SDPA | 3.075e-04 | 2.458e-03 |
+| FlashAttention-2 | 3.075e-04 | 2.458e-03 |
+| Stream-CQSA `itr=1` | 3.080e-04 | 2.462e-03 |
+| Stream-CQSA `itr=2` | 3.085e-04 | 2.465e-03 |
+
+Three claims this supports:
+
+- **Decomposition costs no accuracy.** Backward error is flat in `itr` to three
+  significant figures; error does **not** compound as subproblems are merged.
+- **The forward is ~1.6× *more* accurate than the baselines.** Not a rounding
+  artefact: Stream-CQSA's statistics and output path are fp32 while the
+  baselines round the output to fp16.
+- **The floor is the input dtype, not the method.** bf16/fp16 = 8.0–8.1×
+  everywhere, exactly the mantissa ratio (10 vs 7 explicit bits, 2³ = 8).
+
+![accuracy across precision](docs/figures/fig_accuracy.jpg)
+
+> **One caveat, stated plainly.** When attention is close to uniform, the
+> backward's `dS = P(dP − D)` suffers catastrophic cancellation, and
+> decomposition amplifies it (each subproblem's `dP` is further from the global
+> `D` it is differenced against). At an input scale of 0.05 the `dQ` error
+> drifts 3.5e-03 → 8.5e-03 from `itr=0` to `itr=2`. At realistic score
+> magnitudes (scale ≥ 0.5) the drift vanishes entirely, and the undecomposed
+> baseline is *already* 11× degraded in that regime — it is a property of the
+> input, not of the method. Details in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
+
 ---
 
-## Install
+## Layout
+
+```
+stream_cqsa/            the package
+  stable_stream.py        production entry points: forward, backward, scheduler,
+                          chunk pool -- this is where the fast path lives
+  oom_fallback.py         stream_cqsa_auto and the 7-rung escalation ladder
+  cqs_mask.py             CQS mask construction and pair-coverage validation
+  reference.py            readable ground-truth implementation, used by the tests
+  backends/exact/         pure-PyTorch reference kernels (slow, inspectable)
+  baselines/longnet/      LongNet dilated-attention pattern, decomposed the same way
+
+csrc/                   CUDA extension
+  flash_attn/             derived from FlashAttention-2; 11 files carry the CQS
+                          masking and block-skipping changes
+  cutlass/                vendored NVIDIA CUTLASS headers (4.3.4)
+
+tests/                  correctness suite (243 tests)
+examples/quickstart.py  smallest end-to-end example
+notebooks/
+  reference_kernels_demo.ipynb   how the decomposition works, from first principles
+  tutorial_stream_cqsa.ipynb     production API, profiling, simulating a smaller card
+  accuracy_demo.ipynb            accuracy vs FlashAttention-2 and SDPA, fp16/bf16
+benchmarks/             experiment harness, report and figure generators
+results/paper/          raw JSONL backing every published number
+docs/
+  METHODOLOGY.md          the numerical argument and the CUDA-level work
+  RESULTS.md              full tables, generated from results/ -- do not hand-edit
+  figures/                generated figures (jpg + svg)
+third_party/            upstream BSD-3 license texts
+```
+
+## Installation
+
 
 There are **no prebuilt wheels**: the CUDA extension is compiled for the GPU you
 actually have, which keeps compile time and binary size sane.
@@ -206,7 +327,10 @@ head-dim 64, **non-causal only**.)
 | `nvcc: not found` / `CUDA_HOME` unset | install the CUDA toolkit, or `export CUDA_HOME=/usr/local/cuda` |
 | build killed | lower `MAX_JOBS` |
 
-## Use it
+---
+
+## Usage
+
 
 One function. It takes the place of `scaled_dot_product_attention` and returns
 the same thing.
@@ -342,83 +466,7 @@ Runnable versions: [`examples/quickstart.py`](examples/quickstart.py),
 | `accumulate_on_gpu` | `False` moves the fp32 accumulator to the host. Slower per subproblem, but removes an O(N) device term that **no depth of `itr` can shrink**. |
 | `c`, `interest_set` | CQS parameters. Defaults `c=7`, `(0,1,3)` — a λ=1 Singer difference set. |
 
----
-
-## Accuracy
-
-Every number is measured **against a float64 reference**, not against SDPA —
-SDPA is one of the methods under test, not the yardstick. N=8192, 10 seeds.
-
-**Forward** — relative error vs float64:
-
-| method | fp16 | bf16 |
-|---|--:|--:|
-| SDPA | 2.689e-04 | 2.168e-03 |
-| FlashAttention-2 | 2.689e-04 | 2.168e-03 |
-| **Stream-CQSA `itr=1`** | **1.705e-04** | **1.375e-03** |
-| **Stream-CQSA `itr=2`** | **1.681e-04** | **1.356e-03** |
-
-**Backward** — relative error vs a *dense* float64 reference:
-
-| method | fp16 | bf16 |
-|---|--:|--:|
-| SDPA | 3.075e-04 | 2.458e-03 |
-| FlashAttention-2 | 3.075e-04 | 2.458e-03 |
-| Stream-CQSA `itr=1` | 3.080e-04 | 2.462e-03 |
-| Stream-CQSA `itr=2` | 3.085e-04 | 2.465e-03 |
-
-Three claims this supports:
-
-- **Decomposition costs no accuracy.** Backward error is flat in `itr` to three
-  significant figures; error does **not** compound as subproblems are merged.
-- **The forward is ~1.6× *more* accurate than the baselines.** Not a rounding
-  artefact: Stream-CQSA's statistics and output path are fp32 while the
-  baselines round the output to fp16.
-- **The floor is the input dtype, not the method.** bf16/fp16 = 8.0–8.1×
-  everywhere, exactly the mantissa ratio (10 vs 7 explicit bits, 2³ = 8).
-
-![accuracy across precision](docs/figures/fig_accuracy.jpg)
-
-> **One caveat, stated plainly.** When attention is close to uniform, the
-> backward's `dS = P(dP − D)` suffers catastrophic cancellation, and
-> decomposition amplifies it (each subproblem's `dP` is further from the global
-> `D` it is differenced against). At an input scale of 0.05 the `dQ` error
-> drifts 3.5e-03 → 8.5e-03 from `itr=0` to `itr=2`. At realistic score
-> magnitudes (scale ≥ 0.5) the drift vanishes entirely, and the undecomposed
-> baseline is *already* 11× degraded in that regime — it is a property of the
-> input, not of the method. Details in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
-
----
-
-## What it costs
-
-Below the OOM boundary, Stream-CQSA is **slower and, in the forward, uses more
-device memory** than the baselines it is meant to rescue. That is the trade, and
-the repository does not hide it:
-
-Ratios against FlashAttention-2 over N = 1M–8M, fp16 (min–max across N):
-
-| | | time | peak memory |
-|---|---|--:|--:|
-| forward | `itr=1` | 1.49–1.81× | 1.29× |
-| forward | `itr=2` | 1.70–1.99× | **0.83×** |
-| backward | `itr=1` | 2.10–2.26× | 0.76× |
-| backward | `itr=2` | 2.45–2.70× | **0.44×** |
-
-The memory ratios are strikingly constant across N — the decomposition shrinks
-the working set by a fixed factor set by `itr`, not by anything N-dependent.
-
-**Use FlashAttention-2 when it fits.** Reach for Stream-CQSA when it does not,
-or when you need the backward's memory headroom more than you need the 2×.
-
-One incidental finding worth flagging: PyTorch's **memory-efficient SDPA backend
-is a severe outlier in the backward** — 15 421 s at 4M against FlashAttention-2's
-407 s, a factor of 38 — while using *more* memory than Stream-CQSA `itr=2`. If
-you are reaching for that backend for long-context training, measure it.
-
----
-
-## Why it does not overflow
+### Why it does not overflow
 
 The obvious way to recompose subproblems is through unnormalised numerators and
 denominators, reconstructing `Den_i = exp(lse_i)` from each local kernel's
@@ -443,7 +491,8 @@ found — is in **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**.
 
 ---
 
-## Reproduce
+## Reproduce the experiments
+
 
 All numbers above come from the raw JSONL committed under `results/`, and the
 report and figures are generated from it — they cannot drift from the data.
@@ -466,26 +515,8 @@ are in **[docs/RESULTS.md](docs/RESULTS.md)**.
 
 ---
 
-## Layout
-
-```
-stream_cqsa/          Python package
-  stable_stream.py      main entry points: forward, backward, scheduler, chunk pool
-  oom_fallback.py       stream_cqsa_auto and the escalation ladder
-  reference.py          readable ground-truth implementation, used by the tests
-  cqs_mask.py           CQS mask construction
-csrc/                 CUDA extension (FlashAttention-2 derived, + CUTLASS headers)
-  flash_attn/src/       11 of these files carry the CQS modifications
-tests/                correctness suite
-benchmarks/           the experiment harness, report and figure generators
-notebooks/            usage tutorial and accuracy demo
-results/paper/        raw JSONL backing every published number
-docs/                 METHODOLOGY.md (implementation), RESULTS.md (generated)
-```
-
----
-
 ## Citation
+
 
 > Yiming Bian and Joshua M. Akey. *Stream-CQSA: Avoiding Out-of-Memory in
 > Attention Computation via Flexible Workload Scheduling.* arXiv:2604.20819, 2026.
@@ -507,7 +538,10 @@ The arXiv entry is versioned and the DOI above always resolves to the latest
 version. This repository tracks the revision in preparation, so some numbers
 here are newer than those in v1.
 
+---
+
 ## License
+
 
 BSD 3-Clause — see [LICENSE](LICENSE).
 
