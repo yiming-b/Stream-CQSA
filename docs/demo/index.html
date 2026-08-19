@@ -6,173 +6,186 @@
 <style>
 :root{
   --bg:#f6f7f5; --surface:#fff; --surface2:#ecefeb; --line:#d7dcd6; --line2:#c2c9c1;
-  --ink:#14181a; --ink2:#4a5250; --ink3:#79817e;
+  --ink:#14181a; --ink2:#464e4c; --ink3:#727a77;
   --dev:#0f8f80; --devsoft:#d3e9e5; --devline:#8fcac2;
   --host:#b4661f; --hostsoft:#f2e2cf; --hostline:#dfb887;
   --warn:#b3392f; --warnsoft:#f6dcd8; --ok:#2f7d3a;
   --owner:#4d5bd0; --ownersoft:#dfe2f8;
-  --r:3px;
+  --sel-s:62%; --sel-l:42%; --mut-s:34%; --mut-l:80%;
+  --r:4px;
   --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
   --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
     --bg:#0d1011; --surface:#151a1b; --surface2:#1e2426; --line:#2c3436; --line2:#3d4749;
-    --ink:#e7ebe9; --ink2:#a4aeab; --ink3:#6f7a77;
+    --ink:#e7ebe9; --ink2:#a9b3b0; --ink3:#76817e;
     --dev:#3fc9b4; --devsoft:#123531; --devline:#1f6b60;
     --host:#e29a4d; --hostsoft:#3a2a15; --hostline:#7a5522;
     --warn:#ef6d5e; --warnsoft:#3d1c19; --ok:#6cc27a;
     --owner:#8b96ee; --ownersoft:#22264d;
+    --sel-s:70%; --sel-l:60%; --mut-s:28%; --mut-l:27%;
   }
 }
 :root[data-theme="dark"]{
   --bg:#0d1011; --surface:#151a1b; --surface2:#1e2426; --line:#2c3436; --line2:#3d4749;
-  --ink:#e7ebe9; --ink2:#a4aeab; --ink3:#6f7a77;
+  --ink:#e7ebe9; --ink2:#a9b3b0; --ink3:#76817e;
   --dev:#3fc9b4; --devsoft:#123531; --devline:#1f6b60;
   --host:#e29a4d; --hostsoft:#3a2a15; --hostline:#7a5522;
   --warn:#ef6d5e; --warnsoft:#3d1c19; --ok:#6cc27a;
   --owner:#8b96ee; --ownersoft:#22264d;
+  --sel-s:70%; --sel-l:60%; --mut-s:28%; --mut-l:27%;
 }
 *{box-sizing:border-box}
 body{
   margin:0; background:var(--bg); color:var(--ink);
-  font-family:var(--sans); font-size:14px; line-height:1.55;
+  font-family:var(--sans); font-size:16px; line-height:1.6;
   -webkit-font-smoothing:antialiased;
 }
 h1,h2,h3{text-wrap:balance;margin:0}
-.wrap{max-width:1440px;margin:0 auto;padding:22px 22px 60px}
+.wrap{max-width:1680px;margin:0 auto;padding:30px 28px 72px}
 
 /* ---------- masthead ---------- */
-.mast{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;justify-content:space-between;
-      padding-bottom:16px;border-bottom:1px solid var(--line)}
-.mast h1{font-size:22px;font-weight:600;letter-spacing:-.015em}
+.mast{padding-bottom:20px;border-bottom:1px solid var(--line)}
+.mast h1{font-size:31px;font-weight:600;letter-spacing:-.02em}
 .mast h1 span{color:var(--dev)}
-.tag{font-size:13px;color:var(--ink2);max-width:62ch;margin-top:5px}
-.tag code{font-family:var(--mono);font-size:12px;background:var(--surface2);padding:1px 4px;border-radius:var(--r)}
+.tag{font-size:16px;color:var(--ink2);max-width:74ch;margin-top:9px}
+.tag code{font-family:var(--mono);font-size:14px;background:var(--surface2);padding:1px 5px;border-radius:var(--r)}
 
 /* ---------- controls ---------- */
-.controls{display:flex;flex-wrap:wrap;gap:0;margin:16px 0 0;background:var(--surface);
+.controls{display:flex;flex-wrap:wrap;gap:0;margin:20px 0 0;background:var(--surface);
           border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
-.ctl{display:flex;flex-direction:column;gap:5px;padding:11px 14px;border-right:1px solid var(--line);flex:0 0 auto}
+.ctl{display:flex;flex-direction:column;gap:7px;padding:14px 18px;border-right:1px solid var(--line);flex:0 0 auto}
 .ctl:last-child{border-right:0}
-.ctl label{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3)}
-.ctl input[type=number],.ctl input[type=text],.ctl select{
-  font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--ink);
-  border:1px solid var(--line2);border-radius:var(--r);padding:4px 7px}
-.ctl input[type=number]{width:66px}
-.ctl input[type=text]{width:104px}
+.ctl label{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)}
+.ctl input,.ctl select{
+  font-family:var(--mono);font-size:15px;background:var(--bg);color:var(--ink);
+  border:1px solid var(--line2);border-radius:var(--r);padding:7px 9px}
+.ctl input[type=number]{width:82px}
+.ctl input[type=text]{width:240px}
+.ctl select{min-width:132px}
+.ctl.bad input[type=text]{border-color:var(--warn);background:var(--warnsoft)}
 .seg{display:flex;border:1px solid var(--line2);border-radius:var(--r);overflow:hidden}
-.seg button{font-family:var(--mono);font-size:12px;background:var(--bg);color:var(--ink2);
-  border:0;padding:5px 11px;cursor:pointer;border-right:1px solid var(--line2)}
+.seg button{font-family:var(--mono);font-size:14px;background:var(--bg);color:var(--ink2);
+  border:0;padding:8px 15px;cursor:pointer;border-right:1px solid var(--line2)}
 .seg button:last-child{border-right:0}
 .seg button[aria-pressed="true"]{background:var(--dev);color:#fff}
 .seg button.host[aria-pressed="true"]{background:var(--host);color:#fff}
-.seg button:focus-visible,.ctl input:focus-visible,select:focus-visible{outline:2px solid var(--dev);outline-offset:1px}
+.seg button:focus-visible,.ctl input:focus-visible,.ctl select:focus-visible{outline:2px solid var(--dev);outline-offset:1px}
+
+/* ---------- banner ---------- */
+.banner{display:none;margin-top:-1px;padding:13px 18px;border:1px solid var(--warn);
+  background:var(--warnsoft);color:var(--warn);border-radius:var(--r);font-size:15px}
+.banner.on{display:block}
+.banner b{font-family:var(--mono);font-weight:600}
+.banner.good{border-color:var(--devline);background:var(--devsoft);color:var(--dev)}
 
 /* ---------- readout strip ---------- */
-.strip{display:flex;flex-wrap:wrap;gap:0;margin-top:-1px;background:var(--surface2);
+.strip{display:flex;flex-wrap:wrap;gap:0;margin-top:12px;background:var(--surface2);
        border:1px solid var(--line);border-radius:var(--r)}
-.stat{padding:9px 14px;border-right:1px solid var(--line);flex:1 1 auto;min-width:118px}
+.stat{padding:12px 18px;border-right:1px solid var(--line);flex:1 1 auto;min-width:142px}
 .stat:last-child{border-right:0}
-.stat b{display:block;font-family:var(--mono);font-size:15px;font-weight:600;
+.stat b{display:block;font-family:var(--mono);font-size:19px;font-weight:600;
         font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-.stat span{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
+.stat span{font-family:var(--mono);font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3)}
 .stat.good b{color:var(--ok)} .stat.bad b{color:var(--warn)}
 
-/* ---------- 3-column shell ---------- */
-.shell{display:grid;grid-template-columns:210px minmax(0,1fr) 300px;gap:16px;margin-top:16px;align-items:start}
-@media(max-width:1120px){.shell{grid-template-columns:196px minmax(0,1fr)}.side{grid-column:1/-1;display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:16px}}
-@media(max-width:720px){.shell{grid-template-columns:1fr}}
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:252px minmax(0,1fr) 384px;gap:20px;margin-top:20px;align-items:start}
+@media(max-width:1280px){.shell{grid-template-columns:238px minmax(0,1fr)}.side{grid-column:1/-1;display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px}}
+@media(max-width:800px){.shell{grid-template-columns:1fr}}
 
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
-.panel h2{font-size:11px;font-family:var(--mono);letter-spacing:.1em;text-transform:uppercase;
-          color:var(--ink3);padding:10px 13px;border-bottom:1px solid var(--line);font-weight:500}
-.pad{padding:13px}
+.panel h2{font-size:12.5px;font-family:var(--mono);letter-spacing:.11em;text-transform:uppercase;
+          color:var(--ink3);padding:13px 17px;border-bottom:1px solid var(--line);font-weight:500}
+.pad{padding:17px}
 
 /* ---------- stage rail ---------- */
-.rail{position:sticky;top:14px}
-.phase{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
-       color:var(--ink3);padding:11px 13px 5px}
-.step{display:flex;gap:9px;align-items:baseline;width:100%;text-align:left;background:none;border:0;
-      border-left:2px solid transparent;padding:6px 13px;cursor:pointer;color:var(--ink2);font:inherit;font-size:13px}
+.rail{position:sticky;top:16px}
+.phase{font-family:var(--mono);font-size:11.5px;letter-spacing:.11em;text-transform:uppercase;
+       color:var(--ink3);padding:14px 17px 6px}
+.step{display:flex;gap:11px;align-items:baseline;width:100%;text-align:left;background:none;border:0;
+      border-left:3px solid transparent;padding:9px 17px;cursor:pointer;color:var(--ink2);font:inherit;font-size:15px}
 .step:hover{background:var(--surface2);color:var(--ink)}
 .step[aria-current="true"]{background:var(--surface2);border-left-color:var(--dev);color:var(--ink);font-weight:600}
-.step .n{font-family:var(--mono);font-size:11px;color:var(--ink3);min-width:15px}
+.step .n{font-family:var(--mono);font-size:13px;color:var(--ink3);min-width:18px}
 .step[aria-current="true"] .n{color:var(--dev)}
 .step:focus-visible{outline:2px solid var(--dev);outline-offset:-2px}
-.railnav{display:flex;gap:7px;padding:11px 13px;border-top:1px solid var(--line)}
-.railnav button{flex:1;font-family:var(--mono);font-size:12px;background:var(--bg);color:var(--ink);
-  border:1px solid var(--line2);border-radius:var(--r);padding:5px;cursor:pointer}
+.railnav{display:flex;gap:9px;padding:14px 17px;border-top:1px solid var(--line)}
+.railnav button{flex:1;font-family:var(--mono);font-size:14px;background:var(--bg);color:var(--ink);
+  border:1px solid var(--line2);border-radius:var(--r);padding:8px;cursor:pointer}
 .railnav button:hover:not(:disabled){border-color:var(--dev);color:var(--dev)}
 .railnav button:disabled{opacity:.4;cursor:default}
 
 /* ---------- stage body ---------- */
-.stagehead{padding:14px 16px 0}
-.stagehead h3{font-size:17px;font-weight:600;letter-spacing:-.01em}
-.stagehead p{color:var(--ink2);margin:6px 0 0;max-width:66ch}
-.formula{font-family:var(--mono);font-size:13px;background:var(--surface2);border:1px solid var(--line);
-  border-radius:var(--r);padding:9px 12px;margin:12px 16px 0;overflow-x:auto;white-space:pre;color:var(--ink)}
-.stagebody{padding:14px 16px 16px;display:flex;flex-direction:column;gap:14px}
-.note{font-size:12.5px;color:var(--ink2);border-left:2px solid var(--line2);padding-left:10px;max-width:70ch}
+.stagehead{padding:18px 21px 0}
+.stagehead h3{font-size:23px;font-weight:600;letter-spacing:-.015em}
+.stagehead p{color:var(--ink2);margin:9px 0 0;max-width:72ch;font-size:16px}
+.formula{font-family:var(--mono);font-size:15px;background:var(--surface2);border:1px solid var(--line);
+  border-radius:var(--r);padding:13px 16px;margin:16px 21px 0;overflow-x:auto;white-space:pre;color:var(--ink);line-height:1.7}
+.stagebody{padding:18px 21px 21px;display:flex;flex-direction:column;gap:19px}
+.note{font-size:15px;color:var(--ink2);border-left:3px solid var(--line2);padding-left:13px;max-width:76ch}
 .note.warn{border-left-color:var(--warn);color:var(--warn)}
 .note.dev{border-left-color:var(--dev)}
 .note.host{border-left-color:var(--host)}
 
-.blk h4{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;
-        color:var(--ink3);margin:0 0 7px;font-weight:500}
-.scroll{overflow-x:auto;padding-bottom:2px}
+.blk h4{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;
+        color:var(--ink3);margin:0 0 10px;font-weight:500}
+.scroll{overflow-x:auto;padding-bottom:3px}
 
 /* chunk strip */
-.chunks{display:flex;gap:3px;flex-wrap:wrap}
-.chunk{border:1px solid var(--line2);border-radius:var(--r);padding:5px 7px;min-width:34px;text-align:center;
-       font-family:var(--mono);font-size:11px;background:var(--surface2);color:var(--ink3)}
-.chunk .cid{display:block;font-size:9px;letter-spacing:.07em;color:var(--ink3)}
-.chunk .tok{display:block;color:var(--ink2);font-size:11px}
+.chunks{display:flex;gap:5px;flex-wrap:wrap}
+.chunk{border:1px solid var(--line2);border-radius:var(--r);padding:8px 10px;min-width:48px;text-align:center;
+       font-family:var(--mono);font-size:13px;background:var(--surface2);color:var(--ink3)}
+.chunk .cid{display:block;font-size:11px;letter-spacing:.07em;color:var(--ink3)}
+.chunk .tok{display:block;color:var(--ink2);font-size:13px}
 .chunk.sel{background:var(--devsoft);border-color:var(--devline);color:var(--dev)}
 .chunk.sel .tok,.chunk.sel .cid{color:var(--dev)}
 .chunk.own{background:var(--ownersoft);border-color:var(--owner)}
 .chunk.own .cid,.chunk.own .tok{color:var(--owner)}
 
 /* token chips */
-.toks{display:flex;flex-wrap:wrap;gap:3px}
-.tk{font-family:var(--mono);font-size:11px;padding:2px 5px;border-radius:var(--r);
+.toks{display:flex;flex-wrap:wrap;gap:5px}
+.tk{font-family:var(--mono);font-size:13px;padding:3px 7px;border-radius:var(--r);
     background:var(--surface2);border:1px solid var(--line);color:var(--ink2);font-variant-numeric:tabular-nums}
 .tk.own{background:var(--ownersoft);border-color:var(--owner);color:var(--owner)}
 .tk.q{background:var(--devsoft);border-color:var(--devline);color:var(--dev)}
 
 /* matrices */
-table.mx{border-collapse:collapse;font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums}
-table.mx th{color:var(--ink3);font-weight:500;font-size:10px;padding:2px 5px;text-align:right}
-table.mx td{padding:2px 5px;text-align:right;border:1px solid var(--line);color:var(--ink2);min-width:44px}
+table.mx{border-collapse:collapse;font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
+table.mx th{color:var(--ink3);font-weight:500;font-size:12px;padding:4px 7px;text-align:right;white-space:nowrap}
+table.mx td{padding:4px 8px;text-align:right;border:1px solid var(--line);color:var(--ink2);min-width:54px}
 table.mx td.keep{background:var(--devsoft);color:var(--dev);font-weight:500}
 table.mx td.grp{background:var(--surface2);color:var(--ink3)}
-table.mx td.cau{background:transparent;color:var(--ink3);opacity:.45}
+table.mx td.cau{background:transparent;color:var(--ink3);opacity:.42}
 table.mx td.hi{background:var(--ownersoft);color:var(--owner);font-weight:600}
-.legend{display:flex;flex-wrap:wrap;gap:12px;font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
-.legend i{display:inline-block;width:9px;height:9px;border:1px solid var(--line2);
-  border-radius:2px;margin-right:5px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-family:var(--mono);font-size:12.5px;color:var(--ink3)}
+.legend i{display:inline-block;width:12px;height:12px;border:1px solid var(--line2);
+  border-radius:2px;margin-right:7px;vertical-align:-2px}
 
-/* residency diagram */
-.mem{display:flex;flex-direction:column;gap:9px}
-.membox{border:1px solid var(--line2);border-radius:var(--r);padding:9px 11px;background:var(--surface2)}
+/* residency */
+.mem{display:flex;flex-direction:column;gap:12px}
+.membox{border:1px solid var(--line2);border-radius:var(--r);padding:13px 15px;background:var(--surface2)}
 .membox.d{border-color:var(--devline);background:var(--devsoft)}
 .membox.h{border-color:var(--hostline);background:var(--hostsoft)}
-.membox h5{margin:0 0 6px;font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;font-weight:600}
+.membox h5{margin:0 0 9px;font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;font-weight:600}
 .membox.d h5{color:var(--dev)} .membox.h h5{color:var(--host)}
-.memrow{display:flex;justify-content:space-between;gap:10px;font-family:var(--mono);font-size:11.5px;
-        color:var(--ink2);font-variant-numeric:tabular-nums;padding:1px 0}
+.memrow{display:flex;justify-content:space-between;gap:14px;font-family:var(--mono);font-size:14px;
+        color:var(--ink2);font-variant-numeric:tabular-nums;padding:2px 0}
 .memrow b{font-weight:500;color:var(--ink)}
-.bus{text-align:center;font-family:var(--mono);font-size:10.5px;color:var(--ink3);padding:1px 0}
-canvas{display:block;max-width:100%;height:auto;image-rendering:pixelated;border:1px solid var(--line);border-radius:var(--r)}
-.cap{font-family:var(--mono);font-size:10.5px;color:var(--ink3);margin-top:8px;line-height:1.5}
-.foot{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
-      font-size:12.5px;color:var(--ink3);display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
+.bus{text-align:center;font-family:var(--mono);font-size:12.5px;color:var(--ink3);padding:2px 0}
+canvas{display:block;max-width:100%;height:auto;border:1px solid var(--line2);border-radius:var(--r)}
+.cap{font-family:var(--mono);font-size:12.5px;color:var(--ink3);margin-top:11px;line-height:1.6}
+.foot{margin-top:34px;padding-top:18px;border-top:1px solid var(--line);
+      font-size:14px;color:var(--ink3);display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between}
 .foot a{color:var(--dev)}
-.subsel{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
-.subsel button{font-family:var(--mono);font-size:11px;background:var(--bg);border:1px solid var(--line2);
-  color:var(--ink2);border-radius:var(--r);padding:3px 7px;cursor:pointer}
-.subsel button[aria-pressed="true"]{background:var(--dev);border-color:var(--dev);color:#fff}
+.foot code{font-family:var(--mono);font-size:13px}
+.subsel{display:flex;gap:5px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:13px;color:var(--ink3)}
+.subsel button{font-family:var(--mono);font-size:13px;background:var(--bg);border:1px solid var(--line2);
+  color:var(--ink2);border-radius:var(--r);padding:5px 10px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.subsel button .sw{width:11px;height:11px;border-radius:2px;border:1px solid rgba(128,128,128,.4)}
+.subsel button[aria-pressed="true"]{border-color:var(--ink2);color:var(--ink);font-weight:600;background:var(--surface2)}
 .subsel button:hover:not([aria-pressed="true"]){border-color:var(--dev);color:var(--dev)}
 @media(prefers-reduced-motion:no-preference){.step,.seg button,.subsel button{transition:background .12s,color .12s,border-color .12s}}
 </style>
@@ -180,37 +193,35 @@ canvas{display:block;max-width:100%;height:auto;image-rendering:pixelated;border
 <div class="wrap">
 
 <div class="mast">
-  <div>
-    <h1>Stream&#8209;CQSA <span>step by step</span></h1>
-    <p class="tag">One attention call, decomposed by a <em>cyclic quorum set</em> and put back together
-      exactly. Every number below is computed live from the controls — including the
-      <code>group_runs</code> masking and the <code>(acc, l, m)</code> merge the real kernel performs.</p>
-  </div>
+  <h1>Stream&#8209;CQSA <span>step by step</span></h1>
+  <p class="tag">One attention call, decomposed by a <em>cyclic quorum set</em> and put back together
+    exactly. Every number below is computed live — including the <code>group_runs</code> masking and the
+    <code>(acc, l, m)</code> merge the real kernel performs.</p>
 </div>
 
 <div class="controls" role="group" aria-label="Algorithm parameters">
-  <div class="ctl"><label for="cN">N — tokens</label><input id="cN" type="number" min="7" max="63" step="1" value="21"></div>
-  <div class="ctl"><label for="cC">c — chunks</label><input id="cC" type="number" min="3" max="13" step="1" value="7"></div>
-  <div class="ctl"><label for="cI">interest set</label><input id="cI" type="text" value="0,1,3" spellcheck="false"></div>
+  <div class="ctl"><label for="cC">c — chunks</label>
+    <select id="cC"></select></div>
+  <div class="ctl" id="ctlI"><label for="cI">interest set</label>
+    <input id="cI" type="text" value="0,1,3" spellcheck="false" autocomplete="off"></div>
+  <div class="ctl"><label for="cN">N — tokens</label><input id="cN" type="number" min="4" max="420" step="1" value="21"></div>
   <div class="ctl"><label for="cItr">itr — depth</label>
     <select id="cItr"><option value="0">0 — monolithic</option><option value="1" selected>1</option><option value="2">2</option></select></div>
   <div class="ctl"><label>causal</label>
-    <div class="seg" id="cCausal"><button data-v="1" aria-pressed="true">on</button><button data-v="0" aria-pressed="false">off</button></div></div>
+    <div class="seg" id="cCausal"><button type="button" data-v="1" aria-pressed="true">on</button><button type="button" data-v="0" aria-pressed="false">off</button></div></div>
   <div class="ctl"><label>fp32 accumulator</label>
-    <div class="seg" id="cAcc"><button data-v="gpu" aria-pressed="true">device</button><button class="host" data-v="cpu" aria-pressed="false">host</button></div></div>
+    <div class="seg" id="cAcc"><button type="button" data-v="gpu" aria-pressed="true">device</button><button type="button" class="host" data-v="cpu" aria-pressed="false">host</button></div></div>
   <div class="ctl"><label>theme</label>
-    <div class="seg" id="cTheme"><button data-v="light" aria-pressed="false">light</button><button data-v="dark" aria-pressed="false">dark</button></div></div>
+    <div class="seg" id="cTheme"><button type="button" data-v="light" aria-pressed="false">light</button><button type="button" data-v="dark" aria-pressed="false">dark</button></div></div>
 </div>
 
+<div class="banner" id="banner" role="status"></div>
 <div class="strip" id="strip"></div>
 
 <div class="shell">
-
   <div class="panel rail">
-    <div class="phase">Forward</div>
-    <div id="stepsF"></div>
-    <div class="phase">Backward</div>
-    <div id="stepsB"></div>
+    <div class="phase">Forward</div><div id="stepsF"></div>
+    <div class="phase">Backward</div><div id="stepsB"></div>
     <div class="railnav">
       <button id="prev" type="button">&#8592; prev</button>
       <button id="next" type="button">next &#8594;</button>
@@ -224,13 +235,13 @@ canvas{display:block;max-width:100%;height:auto;image-rendering:pixelated;border
   </div>
 
   <div class="side">
-    <div class="panel" style="margin-bottom:16px">
-      <h2>Pair coverage</h2>
+    <div class="panel" style="margin-bottom:20px">
+      <h2>Pair coverage — who owns which pair</h2>
       <div class="pad">
-        <canvas id="grid" width="440" height="440" aria-label="Query by key pair grid showing which subproblem covers each pair"></canvas>
-        <div class="legend" style="margin-top:9px">
-          <span><i style="background:var(--dev);border-color:var(--dev)"></i>this subproblem</span>
-          <span><i style="background:var(--devsoft);border-color:var(--devline)"></i>another one</span>
+        <canvas id="grid" width="640" height="640" aria-label="Query by key pair grid, coloured by which subproblem owns each pair"></canvas>
+        <div class="legend" style="margin-top:12px">
+          <span><i id="lgSel"></i>selected subproblem</span>
+          <span><i style="background:var(--surface2)"></i>other subproblems, one hue each</span>
           <span><i style="background:var(--warnsoft);border-color:var(--warn)"></i>uncovered</span>
         </div>
         <p class="cap" id="gridCap"></p>
@@ -245,7 +256,8 @@ canvas{display:block;max-width:100%;height:auto;image-rendering:pixelated;border
 
 <div class="foot">
   <span>Faithful port of <code>stream_cqsa.cqs_mask</code> and the <code>(acc, l, m)</code> merge in
-    <code>stable_stream.py</code>. Values are fp64 in the browser; the kernel keeps fp32 statistics.</span>
+    <code>stable_stream.py</code>; verified against them cell for cell.
+    Values are fp64 here, fp32 in the kernel.</span>
   <span><a href="https://github.com/yiming-b/Stream-CQSA">github.com/yiming-b/Stream-CQSA</a></span>
 </div>
 </div>
@@ -254,12 +266,25 @@ canvas{display:block;max-width:100%;height:auto;image-rendering:pixelated;border
 "use strict";
 const $=s=>document.querySelector(s), el=(t,c,x)=>{const n=document.createElement(t);if(c)n.className=c;
   if(x!==undefined)n.textContent=x;return n;};
-const fmt=(v,d=3)=>!isFinite(v)?(v>0?"inf":"−inf"):(Math.abs(v)<1e-12?"0":v.toFixed(d));
+const fmt=(v,d=3)=>!isFinite(v)?(v>0?"inf":"-inf"):(Math.abs(v)<1e-12?"0":v.toFixed(d));
 
-/* ---------------- state ---------------- */
+/* Planar (Singer) difference sets: c = q^2+q+1, |I| = q+1, lambda = 1.
+   Every one of these was verified: the q(q+1) nonzero differences hit each
+   residue mod c exactly once, which is what makes the pair cover a partition. */
+const PRESETS=[
+ {c:7,   q:2,  I:[0,1,3]},
+ {c:13,  q:3,  I:[0,1,3,9]},
+ {c:21,  q:4,  I:[0,1,4,14,16]},
+ {c:31,  q:5,  I:[0,1,3,8,12,18]},
+ {c:57,  q:7,  I:[0,1,3,13,32,36,43,52]},
+ {c:73,  q:8,  I:[0,1,3,7,15,31,36,54,63]},
+ {c:91,  q:9,  I:[0,1,3,9,27,49,56,61,77,81]},
+ {c:133, q:11, I:[0,1,3,12,20,34,38,81,88,94,104,109]}
+];
+
 const S={N:21,c:7,I:[0,1,3],itr:1,causal:true,acc:"gpu",stage:0,sub:0};
 
-/* ---------------- CQS mask: faithful port ---------------- */
+/* ---------------- CQS mask: faithful port of cqs_mask.py ---------------- */
 function chunkLayout(n,c){const q=Math.floor(n/c),r=n%c,sizes=[],starts=[],ends=[];
   for(let i=0;i<c;i++)sizes.push(q+(i<r?1:0));
   let o=0;for(let i=0;i<c;i++){starts.push(o);o+=sizes[i];ends.push(o);}
@@ -298,7 +323,6 @@ function genMask(N,path,I,c){
       if(idx.length) groupRuns.push(runsOf(idx)); } });
   return{tokenIds,groupRuns,trace,localSize:tokenIds.length};
 }
-/* keep[i][j] = the pair is THIS subproblem's responsibility */
 function keepMask(L,groupRuns){
   const masked=Array.from({length:L},()=>new Uint8Array(L));
   for(const runs of groupRuns){ const idx=[];
@@ -310,7 +334,19 @@ const allPaths=(c,itr)=>{ if(itr<=0)return[[]]; let out=[[]];
   for(let d=0;d<itr;d++){const nx=[];for(const p of out)for(let q=0;q<c;q++)nx.push([...p,q]);out=nx;}
   return out; };
 
-/* ---------------- deterministic toy tensors ---------------- */
+/* lambda = 1 difference-set test: the k(k-1) nonzero differences must hit
+   every residue mod c exactly once. This is the structural reason the pairs
+   partition; the coverage count below is the empirical confirmation. */
+function diffSetCheck(c,I){
+  const k=I.length, need=c-1, have=k*(k-1);
+  const cnt=new Int32Array(c);
+  for(const a of I) for(const b of I) if(a!==b) cnt[((a-b)%c+c)%c]++;
+  let missing=0,repeat=0;
+  for(let d=1;d<c;d++){ if(cnt[d]===0)missing++; else if(cnt[d]>1)repeat++; }
+  return{ok:have===need&&missing===0&&repeat===0,k,need,have,missing,repeat};
+}
+
+/* ---------------- toy tensors ---------------- */
 const D=4;
 function rng(seed){let s=seed>>>0;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296*2-1;};}
 function mkTensor(N,seed){const r=rng(seed),t=[];
@@ -334,7 +370,6 @@ function compute(){
         const ok=keep[i][j] && (!causal || g.tokenIds[j]<=g.tokenIds[i]);
         er.push(ok); sr.push(ok?scale*dot(Q[g.tokenIds[i]],K[g.tokenIds[j]]):-Infinity);
       } eff.push(er); scores.push(sr); }
-    /* local online-softmax statistics, exactly as the kernel returns them */
     const m=[],l=[],acc=[];
     for(let i=0;i<L;i++){
       let mi=-Infinity; for(let j=0;j<L;j++) if(scores[i][j]>mi) mi=scores[i][j];
@@ -346,26 +381,21 @@ function compute(){
     return{path,...g,keep,eff,scores,m,l,acc,L};
   });
 
-  /* global merge, max-shifted — never forms exp(lse) */
   const gm=new Array(N).fill(-Infinity), gl=new Array(N).fill(0),
         ga=Array.from({length:N},()=>new Array(D).fill(0));
-  const mergeLog=[];
-  subs.forEach((sb,si)=>{
-    let touched=0;
+  subs.forEach(sb=>{
     for(let i=0;i<sb.L;i++){
-      const t=sb.tokenIds[i]; if(!isFinite(sb.m[i])||sb.l[i]===0) continue; touched++;
+      const t=sb.tokenIds[i]; if(!isFinite(sb.m[i])||sb.l[i]===0) continue;
       const mp=Math.max(gm[t],sb.m[i]);
       const co=isFinite(gm[t])?Math.exp(gm[t]-mp):0, cn=Math.exp(sb.m[i]-mp);
       gl[t]=gl[t]*co+sb.l[i]*cn;
       for(let d=0;d<D;d++) ga[t][d]=ga[t][d]*co+sb.acc[i][d]*cn;
       gm[t]=mp;
     }
-    mergeLog.push({si,touched});
   });
   const O=ga.map((a,i)=>gl[i]>0?a.map(x=>x/gl[i]):a.map(()=>0));
   const lse=gm.map((mm,i)=>gl[i]>0?mm+Math.log(gl[i]):-Infinity);
 
-  /* reference: dense attention over the same admissible set */
   const ref=[];
   for(let i=0;i<N;i++){
     const sc=[];let mi=-Infinity;
@@ -379,8 +409,7 @@ function compute(){
   for(let i=0;i<N;i++)for(let d=0;d<D;d++){num+=(O[i][d]-ref[i][d])**2;den+=ref[i][d]**2;}
   const relErr=den>0?Math.sqrt(num/den):0;
 
-  /* ---- backward, global-lse form: P = exp(s - lse) <= 1 ---- */
-  const Dv=O.map((o,i)=>dot(dO[i],o));                        // D[q] = sum_d dO*O
+  const Dv=O.map((o,i)=>dot(dO[i],o));
   const dQ=Array.from({length:N},()=>new Array(D).fill(0)),
         dK=Array.from({length:N},()=>new Array(D).fill(0)),
         dV=Array.from({length:N},()=>new Array(D).fill(0));
@@ -396,24 +425,21 @@ function compute(){
       } }
   });
 
-  /* coverage over the global grid */
   const cover=Array.from({length:N},()=>new Int16Array(N).fill(-1));
-  subs.forEach((sb,si)=>{ for(let i=0;i<sb.L;i++)for(let j=0;j<sb.L;j++)
-      if(sb.eff[i][j]) cover[sb.tokenIds[i]][sb.tokenIds[j]]=si; });
-  let admissible=0,covered=0,dup=0;
   const seen=Array.from({length:N},()=>new Int16Array(N));
-  subs.forEach(sb=>{for(let i=0;i<sb.L;i++)for(let j=0;j<sb.L;j++)
-      if(sb.eff[i][j])seen[sb.tokenIds[i]][sb.tokenIds[j]]++;});
+  subs.forEach((sb,si)=>{ for(let i=0;i<sb.L;i++)for(let j=0;j<sb.L;j++)
+      if(sb.eff[i][j]){ cover[sb.tokenIds[i]][sb.tokenIds[j]]=si; seen[sb.tokenIds[i]][sb.tokenIds[j]]++; } });
+  let admissible=0,covered=0,dup=0;
   for(let i=0;i<N;i++)for(let j=0;j<N;j++){ if(S.causal&&j>i)continue; admissible++;
     if(seen[i][j]>0)covered++; if(seen[i][j]>1)dup++; }
 
   return{Q,K,V,dO,scale,subs,gm,gl,ga,O,lse,relErr,Dv,dQ,dK,dV,pMax,cover,
-         admissible,covered,dup,paths,mergeLog};
+         admissible,covered,dup,paths};
 }
 
 /* ---------------- byte model ---------------- */
 function bytes(R){
-  const {N}=S, H=1, Dd=64;                       // per-head model, D=64 like the paper
+  const {N}=S, H=1, Dd=64;
   const inputs=3*H*N*Dd*2, accum=H*N*Dd*4+2*H*N*4;
   const maxL=Math.max(...R.subs.map(s=>s.L));
   const inflight=3*H*maxL*Dd*2 + H*maxL*Dd*4;
@@ -423,6 +449,16 @@ function bytes(R){
          traffic:perSub*R.subs.length,maxL};
 }
 const kb=b=>b<1024?b+" B":b<1048576?(b/1024).toFixed(1)+" KiB":(b/1048576).toFixed(2)+" MiB";
+
+/* ---------------- per-subproblem hue ---------------- */
+const HUE=(si,n)=>((si*(360/Math.max(1,Math.min(n,17))) + si*137.508)%360);
+function subColor(si,n,selected){
+  const cs=getComputedStyle(document.documentElement);
+  const num=k=>parseFloat(cs.getPropertyValue(k));
+  const h=HUE(si,n);
+  return selected ? `hsl(${h} ${num("--sel-s")}% ${num("--sel-l")}%)`
+                  : `hsl(${h} ${num("--mut-s")}% ${num("--mut-l")}%)`;
+}
 
 /* ---------------- stages ---------------- */
 const STAGES=[
@@ -436,7 +472,7 @@ const STAGES=[
   f:"token_ids = concat( chunk[ch] for ch in chunks(i) )"},
  {ph:"F",t:"Mask what belongs to others",lede:"Inside the quorum, pairs where BOTH tokens come from the same non-owner chunk are dropped — another subproblem owns that block. This is group_runs, and it is why the pairs partition instead of overlapping.",
   f:"keep[a][b] = ¬ ∃ group g : a ∈ g ∧ b ∈ g          (then ∧ causal)"},
- {ph:"F",t:"Local statistics",lede:"The kernel returns three statistics per row rather than a normalised output: the running row max m, the sum of shifted exponentials l, and the weighted value sum acc. It never returns a normalised O.",
+ {ph:"F",t:"Local statistics",lede:"The kernel returns three statistics per row rather than a normalised output: the running row max m, the sum of shifted exponentials l, and the weighted value sum acc.",
   f:"m = max_j s_ij      l = Σ exp(s_ij − m)      acc = Σ exp(s_ij − m) · v_j"},
  {ph:"F",t:"Merge, max-shifted",lede:"Merging re-bases both sides onto the larger row max. Every exponent is ≤ 0, so every intermediate lies in (0, 1]. exp(lse) is never formed — that is the whole numerical argument.",
   f:"m' = max(m, mᵢ)\nacc ← acc·exp(m−m') + accᵢ·exp(mᵢ−m')\nl   ← l·exp(m−m')   + lᵢ·exp(mᵢ−m')"},
@@ -453,7 +489,7 @@ const STAGES=[
 ];
 
 /* ---------------- rendering ---------------- */
-let R=null;
+let R=null, DS=null;
 
 function mx(rows,cols,get,cls,rowLab,colLab){
   const wrap=el("div","scroll"), t=el("table","mx");
@@ -462,7 +498,7 @@ function mx(rows,cols,get,cls,rowLab,colLab){
   t.appendChild(hr);
   for(let i=0;i<rows;i++){ const tr=el("tr");
     tr.appendChild(el("th",null,rowLab?rowLab(i):String(i)));
-    for(let j=0;j<cols;j++){ const td=el("td",cls?cls(i,j):null,get(i,j)); tr.appendChild(td); }
+    for(let j=0;j<cols;j++) tr.appendChild(el("td",cls?cls(i,j):null,get(i,j)));
     t.appendChild(tr); }
   wrap.appendChild(t); return wrap;
 }
@@ -473,27 +509,30 @@ function renderStage(){
   const st=STAGES[S.stage], body=$("#stBody");
   $("#stTitle").textContent=st.t; $("#stLede").textContent=st.lede; $("#stFormula").textContent=st.f;
   body.innerHTML="";
-  const sb=R.subs[Math.min(S.sub,R.subs.length-1)], N=S.N;
+  const sb=R.subs[Math.min(S.sub,R.subs.length-1)], N=S.N, n=R.subs.length;
 
-  /* subproblem picker on every stage that is per-subproblem */
-  if(S.stage>=2 && S.stage<=6 || S.stage>=9){
+  if((S.stage>=2&&S.stage<=6)||S.stage>=9){
     const pick=el("div","subsel");
-    pick.appendChild(el("span",null,"subproblem:"));
-    R.subs.forEach((s,i)=>{ if(R.subs.length>14 && i>13) return;
-      const b=el("button",null,S.itr===0?"monolithic":s.path.join("·"));
-      b.type="button"; b.setAttribute("aria-pressed",String(i===S.sub));
+    pick.appendChild(el("span",null,`subproblem (${n} total):`));
+    const LIM=24;
+    R.subs.forEach((s,i)=>{ if(i>=LIM)return;
+      const b=el("button"); b.type="button";
+      const sw=el("span","sw"); sw.style.background=subColor(i,n,i===S.sub); b.appendChild(sw);
+      b.appendChild(el("span",null,S.itr===0?"monolithic":s.path.join("·")));
+      b.setAttribute("aria-pressed",String(i===S.sub));
       b.onclick=()=>{S.sub=i;renderStage();drawGrid();};
       pick.appendChild(b); });
-    if(R.subs.length>14) pick.appendChild(el("span",null,`… ${R.subs.length-14} more`));
-    body.appendChild(block("choose one of "+R.subs.length,pick));
+    if(n>LIM) pick.appendChild(el("span",null,`… ${n-LIM} more`));
+    body.appendChild(block("pick one",pick));
   }
 
   if(S.stage===0){
-    body.appendChild(block("Q · Kᵀ scores, dense (fp64 here)",
-      mx(Math.min(N,12),Math.min(N,12),(i,j)=>fmt(R.scale*dot(R.Q[i],R.K[j]),2),
+    const lim=Math.min(N,12);
+    body.appendChild(block("Q · Kᵀ scores, dense",
+      mx(lim,lim,(i,j)=>fmt(R.scale*dot(R.Q[i],R.K[j]),2),
         (i,j)=>(S.causal&&j>i)?"cau":"", i=>"q"+i, j=>"k"+j)));
     body.appendChild(note(`${R.admissible} admissible pairs at N=${N}${S.causal?" (causal)":""}. `+
-      `Attention cost is quadratic in N — that is what forces the decomposition at long context.`));
+      `Cost is quadratic in N — that is what forces the decomposition at long context.`));
   }
 
   if(S.stage===1){
@@ -501,35 +540,38 @@ function renderStage(){
     const strip=el("div","chunks");
     for(let ch=0;ch<S.c;ch++){ const d=el("div","chunk");
       d.appendChild(el("span","cid","chunk "+ch));
-      d.appendChild(el("span","tok",`${starts[ch]}…${ends[ch]-1}`));
+      d.appendChild(el("span","tok",sizes[ch]?`${starts[ch]}…${ends[ch]-1}`:"empty"));
       d.appendChild(el("span","tok",sizes[ch]+" tok"));
       strip.appendChild(d); }
     body.appendChild(block(`N = ${N} split into c = ${S.c}`,strip));
-    body.appendChild(note(`${N} mod ${S.c} = ${N%S.c}, so the first ${N%S.c} chunk(s) carry one extra token.`));
+    body.appendChild(note(`${N} mod ${S.c} = ${N%S.c}, so the first ${N%S.c} chunk(s) carry one extra token.`+
+      (Math.floor(N/S.c)<1?`  N is smaller than c, so some chunks are empty — raise N to at least ${S.c*2}.`:"" ),
+      Math.floor(N/S.c)<1?"warn":null));
   }
 
   if(S.stage===2){
     const q=S.itr===0?null:sb.path[0];
     const chunks=q===null?[]:quorumChunks(q,S.c,S.I);
-    const {starts,ends}=chunkLayout(N,S.c);
+    const {starts,ends,sizes}=chunkLayout(N,S.c);
     const strip=el("div","chunks");
     for(let ch=0;ch<S.c;ch++){ const sel=chunks.includes(ch), own=ch===q;
       const d=el("div","chunk"+(own?" own":sel?" sel":""));
       d.appendChild(el("span","cid","chunk "+ch));
-      d.appendChild(el("span","tok",`${starts[ch]}…${ends[ch]-1}`));
+      d.appendChild(el("span","tok",sizes[ch]?`${starts[ch]}…${ends[ch]-1}`:"—"));
       d.appendChild(el("span","tok",own?"owner":sel?"in quorum":"—"));
       strip.appendChild(d); }
     body.appendChild(block(q===null?"itr = 0 — every chunk, no decomposition"
       :`subproblem ${sb.path.join("·")} → chunks { ${chunks.join(", ")} }`,strip));
     body.appendChild(note(q===null?"At itr = 0 there is one subproblem containing everything. The planner picks this when the whole call fits — not decomposing is both faster and more accurate."
-      :`Offsets ${S.I.join(", ")} added to ${q}, mod ${S.c}. Chunk ${q} is the owner: pairs inside it stay here, pairs inside the other quorum chunks are dropped at the next stage.`,q===null?"dev":null));
+      :`Offsets ${S.I.join(", ")} added to ${q}, mod ${S.c}. Chunk ${q} is the owner: pairs inside it stay here, pairs inside the other quorum chunks are dropped at the next stage.`,
+      q===null?"dev":null));
   }
 
   if(S.stage===3){
-    const chips=el("div","toks");
-    sb.tokenIds.forEach(t=>{ const owner=S.itr>0&&sb.trace.length?
-        (()=>{const {starts,ends}=chunkLayout(N,S.c);const q=sb.path[0];
-              return t>=starts[q]&&t<ends[q];})():false;
+    const chips=el("div","toks"); const {starts,ends}=chunkLayout(N,S.c);
+    const q=S.itr>0?sb.path[0]:null;
+    sb.tokenIds.slice(0,260).forEach(t=>{
+      const owner=q!==null && t>=starts[q] && t<ends[q];
       chips.appendChild(el("span","tk"+(owner?" own":" q"),String(t))); });
     body.appendChild(block(`token_ids — ${sb.L} of ${N} tokens`,chips));
     body.appendChild(note(`The subsequence is ${sb.L} tokens, ${(100*sb.L/N).toFixed(0)}% of the sequence. `+
@@ -553,7 +595,7 @@ function renderStage(){
   if(S.stage===5){
     const L=Math.min(sb.L,14);
     body.appendChild(block("local scores s (−inf where masked)",
-      mx(L,Math.min(sb.L,10),(i,j)=>fmt(sb.scores[i][j],2),
+      mx(L,Math.min(sb.L,9),(i,j)=>fmt(sb.scores[i][j],2),
         (i,j)=>sb.eff[i][j]?"keep":"cau", i=>"t"+sb.tokenIds[i], j=>"t"+sb.tokenIds[j])));
     body.appendChild(block("the three statistics returned per row",
       mx(L,3,(i,j)=>j===0?fmt(sb.m[i],3):j===1?fmt(sb.l[i],3):fmt(sb.acc[i][0],3),
@@ -567,8 +609,7 @@ function renderStage(){
     body.appendChild(block("global accumulator after every merge",
       mx(rows,3,(i,j)=>j===0?fmt(R.gm[i],3):j===1?fmt(R.gl[i],3):fmt(R.ga[i][0],3),
         ()=>"", i=>"t"+i, j=>["m","l","acc[0]"][j])));
-    const dest=S.acc==="gpu"?"device":"host";
-    body.appendChild(note(`This accumulator lives on the ${dest}. `+
+    body.appendChild(note(`This accumulator lives on the ${S.acc==="gpu"?"device":"host"}. `+
       (S.acc==="gpu"
        ?"Keeping it on the device is faster, but it is an O(N) device term that no depth of itr shrinks — it is what runs out of memory first at very long context."
        :"Moving it to the host removes that O(N) device term entirely. Slower per subproblem, and the configuration that survives to the largest N."),
@@ -582,10 +623,10 @@ function renderStage(){
     body.appendChild(block("O = acc / l  ·  lse = m + log l",
       mx(rows,D+1,(i,j)=>j<D?fmt(R.O[i][j],4):fmt(R.lse[i],3),
         (i,j)=>j===D?"hi":"", i=>"t"+i, j=>j<D?"O["+j+"]":"lse")));
-    const exact=R.covered===R.admissible;
+    const exact=R.covered===R.admissible&&R.dup===0;
     body.appendChild(note(exact
       ? `Relative error against dense attention: ${R.relErr.toExponential(2)} — machine precision. The decomposition is exact.`
-      : `Relative error ${R.relErr.toExponential(2)} — NOT exact, because ${R.admissible-R.covered} pair(s) are covered by no subproblem. Try interest set 0,1,3 with c = 7.`,
+      : `Relative error ${R.relExp||R.relErr.toExponential(2)} — NOT exact: ${R.admissible-R.covered} pair(s) covered by nothing, ${R.dup} covered twice. The interest set is not a λ=1 difference set for this c.`,
       exact?"dev":"warn"));
     body.appendChild(note("exp(lse) is never computed. Reconstructing a denominator as exp(lse) overflows fp32 above 88.72, "+
       "and the failure is silent — zeros or NaNs, no exception."));
@@ -593,7 +634,7 @@ function renderStage(){
 
   if(S.stage===8){
     const rows=Math.min(N,14);
-    body.appendChild(block("D[q] = \u03A3_d dO[q,d]\u00B7O[q,d]",
+    body.appendChild(block("D[q] = Σ_d dO[q,d]·O[q,d]",
       mx(rows,1,i=>fmt(R.Dv[i],4),()=>"hi",i=>"q"+i,()=>"D")));
     body.appendChild(note("One scalar per row. It is subtracted from every dP in the same row at the dS stage, "+
       "which is where catastrophic cancellation appears if attention is near-uniform."));
@@ -602,7 +643,7 @@ function renderStage(){
   if(S.stage===9){
     const L=Math.min(sb.L,12);
     body.appendChild(block("P = exp(s − lse_global) — every entry ≤ 1",
-      mx(L,Math.min(sb.L,10),(i,j)=>sb.eff[i][j]?fmt(Math.exp(sb.scores[i][j]-R.lse[sb.tokenIds[i]]),3):"·",
+      mx(L,Math.min(sb.L,9),(i,j)=>sb.eff[i][j]?fmt(Math.exp(sb.scores[i][j]-R.lse[sb.tokenIds[i]]),3):"·",
         (i,j)=>sb.eff[i][j]?"keep":"cau", i=>"q"+sb.tokenIds[i], j=>"k"+sb.tokenIds[j])));
     body.appendChild(note(`Largest P anywhere in the problem: ${R.pMax.toFixed(4)} ≤ 1. `+
       "Bounded by construction, not by assumption — this is the reason the decomposed backward is safe.","dev"));
@@ -623,42 +664,47 @@ function renderStage(){
     const exact=R.covered===R.admissible&&R.dup===0;
     body.appendChild(note(exact
       ? `Every admissible pair was visited exactly once across all ${R.subs.length} subproblem(s), so the gradient contributions add with no correction term.`
-      : `${R.dup} pair(s) are visited by more than one subproblem and ${R.admissible-R.covered} by none — the gradients would be wrong. This is what a bad interest set costs.`,
+      : `${R.dup} pair(s) visited more than once and ${R.admissible-R.covered} by none — the gradients are wrong. This is what a bad interest set costs.`,
       exact?"dev":"warn"));
   }
 }
 
-/* ---------------- pair-coverage canvas ---------------- */
+/* ---------------- coverage canvas ---------------- */
 function drawGrid(){
-  const cv=$("#grid"),ctx=cv.getContext("2d"),N=S.N;
+  const cv=$("#grid"),ctx=cv.getContext("2d"),N=S.N,n=R.subs.length;
   const cs=getComputedStyle(document.documentElement);
   const C=k=>cs.getPropertyValue(k).trim();
-  const px=Math.max(3,Math.floor(430/N)), size=px*N;
+  const px=Math.max(2,Math.floor(620/N)), size=px*N;
   cv.width=size; cv.height=size;
   ctx.fillStyle=C("--surface"); ctx.fillRect(0,0,size,size);
-  const cur=Math.min(S.sub,R.subs.length-1);
+  const cur=Math.min(S.sub,n-1);
+  const cache=new Map();
+  const col=(si,sel)=>{const k=si+"|"+sel; if(!cache.has(k))cache.set(k,subColor(si,n,sel)); return cache.get(k);};
+  /* every subproblem keeps its own hue at all times, so the full partition is
+     always visible; the selected one is the same hue at full strength. */
   for(let i=0;i<N;i++)for(let j=0;j<N;j++){
     if(S.causal&&j>i) continue;
     const own=R.cover[i][j];
-    ctx.fillStyle = own===cur?C("--dev") : own>=0?C("--devsoft") : C("--warnsoft");
-    ctx.fillRect(j*px,i*px,px-(px>4?1:0),px-(px>4?1:0));
-    if(own<0){ ctx.strokeStyle=C("--warn"); ctx.lineWidth=1;
-      ctx.strokeRect(j*px+.5,i*px+.5,px-1,px-1); }
+    if(own<0){ ctx.fillStyle=C("--warnsoft"); ctx.fillRect(j*px,i*px,px,px);
+      ctx.strokeStyle=C("--warn"); ctx.lineWidth=1; ctx.strokeRect(j*px+.5,i*px+.5,px-1,px-1); continue; }
+    ctx.fillStyle=col(own,own===cur);
+    ctx.fillRect(j*px,i*px,px-(px>5?1:0),px-(px>5?1:0));
   }
   ctx.strokeStyle=C("--line2"); ctx.lineWidth=1; ctx.strokeRect(.5,.5,size-1,size-1);
+  $("#lgSel").style.background=subColor(cur,n,true);
   const gap=R.admissible-R.covered;
-  $("#gridCap").textContent = `rows = queries, columns = keys. `+
-    (gap===0 ? `all ${R.covered} admissible pairs covered exactly once.`
-             : `${gap} pair(s) covered by nothing — outlined in red.`)+
-    (R.dup>0?` ${R.dup} covered more than once.`:"");
+  $("#gridCap").textContent=`Rows = queries, columns = keys; one hue per subproblem, `+
+    `${n} in total. `+(gap===0&&R.dup===0
+      ? `All ${R.covered} admissible pairs are covered exactly once — the decomposition is a partition.`
+      : `${gap} pair(s) covered by nothing (outlined red)${R.dup?`, ${R.dup} covered more than once`:""}.`);
 }
 
-/* ---------------- residency panel ---------------- */
+/* ---------------- residency ---------------- */
 function drawMem(){
   const B=bytes(R), box=$("#mem"); box.innerHTML="";
-  const dev=el("div","membox d"); dev.appendChild(el("h5",null,"GPU — device memory"));
   const row=(p,l,v)=>{const r=el("div","memrow");r.appendChild(el("span",null,l));
-    const b=el("b",null,v);r.appendChild(b);p.appendChild(r);};
+    r.appendChild(el("b",null,v));p.appendChild(r);};
+  const dev=el("div","membox d"); dev.appendChild(el("h5",null,"GPU — device memory"));
   row(dev,"in-flight subsequence",kb(B.inflight));
   if(S.acc==="gpu") row(dev,"fp32 accumulator",kb(B.accum));
   row(dev,"peak",kb(B.onDev));
@@ -671,26 +717,46 @@ function drawMem(){
   box.appendChild(host);
   $("#memCap").textContent = S.acc==="gpu"
     ? `Modelled at H=1, D=64 for N=${S.N}. The accumulator sits on the device: fastest, but O(N) device memory that deeper itr cannot shrink.`
-    : `Modelled at H=1, D=64 for N=${S.N}. With the accumulator on the host, device memory holds only one subsequence at a time — this is the configuration that reaches the largest N.`;
+    : `Modelled at H=1, D=64 for N=${S.N}. With the accumulator on the host, device memory holds only one subsequence at a time — the configuration that reaches the largest N.`;
 }
 
-/* ---------------- strip ---------------- */
+/* ---------------- strip + banner ---------------- */
 function drawStrip(){
   const s=$("#strip"); s.innerHTML="";
-  const gap=R.admissible-R.covered, exact=gap===0&&R.dup===0;
-  const B=bytes(R);
+  const gap=R.admissible-R.covered, exact=gap===0&&R.dup===0, B=bytes(R);
   const add=(lab,val,cls)=>{const d=el("div","stat"+(cls?" "+cls:""));
     d.appendChild(el("b",null,val));d.appendChild(el("span",null,lab));s.appendChild(d);};
   add("subproblems",String(R.subs.length));
-  add("largest local size",String(B.maxL===0?0:Math.max(...R.subs.map(x=>x.L))));
+  add("largest local size",String(Math.max(...R.subs.map(x=>x.L))));
   add("pairs covered",`${R.covered}/${R.admissible}`,exact?"good":"bad");
   add("partition",exact?"exact":(gap>0?`${gap} missing`:`${R.dup} double`),exact?"good":"bad");
   add("fwd rel. error",R.relErr.toExponential(1),R.relErr<1e-9?"good":"bad");
   add("max P (backward)",R.pMax.toFixed(3),R.pMax<=1.0000001?"good":"bad");
   add("peak device",kb(B.onDev));
 }
+function drawBanner(){
+  const b=$("#banner"), gap=R.admissible-R.covered;
+  const covOK=gap===0&&R.dup===0;
+  $("#ctlI").classList.toggle("bad",!DS.ok);
+  if(DS.ok&&covOK){ b.className="banner"; b.innerHTML=""; return; }
+  b.className="banner on";
+  if(!DS.ok){
+    const reasons=[];
+    if(DS.have!==DS.need) reasons.push(`|I| = ${DS.k} gives ${DS.have} differences but c − 1 = ${DS.need} are needed`);
+    if(DS.missing) reasons.push(`${DS.missing} residue(s) never appear as a difference`);
+    if(DS.repeat) reasons.push(`${DS.repeat} residue(s) appear more than once`);
+    b.innerHTML=`<b>Not a λ=1 difference set for c = ${S.c}.</b> ${reasons.join("; ")}. `+
+      `Full pair coverage cannot be satisfied: ${gap} of ${R.admissible} admissible pairs are covered by no subproblem`+
+      (R.dup?` and ${R.dup} by more than one`:"")+
+      `, so the output is wrong (relative error ${R.relErr.toExponential(2)}). `+
+      `Pick a c from the list to load a verified set.`;
+  } else {
+    b.innerHTML=`<b>Coverage incomplete.</b> The interest set is a valid difference set, but `+
+      `${gap} of ${R.admissible} admissible pairs are uncovered at this N — N = ${S.N} is too small for c = ${S.c}; `+
+      `raise N to at least ${S.c*2}.`;
+  }
+}
 
-/* ---------------- steps rail ---------------- */
 function drawSteps(){
   const f=$("#stepsF"), b=$("#stepsB"); f.innerHTML=""; b.innerHTML="";
   STAGES.forEach((st,i)=>{
@@ -705,20 +771,53 @@ function drawSteps(){
 }
 
 /* ---------------- wiring ---------------- */
-function recompute(){
-  S.N=Math.max(S.c,Math.min(63,+$("#cN").value||21));
-  S.c=Math.max(3,Math.min(13,+$("#cC").value||7));
+function buildCSelect(){
+  const sel=$("#cC");
+  PRESETS.forEach(p=>{
+    const o=document.createElement("option");
+    o.value=String(p.c); o.textContent=`${p.c}  (order ${p.q}, |I| = ${p.I.length})`;
+    sel.appendChild(o);
+  });
+  const o=document.createElement("option"); o.value="custom"; o.textContent="custom…"; sel.appendChild(o);
+  sel.value="7";
+}
+function applyPreset(c){
+  const p=PRESETS.find(x=>x.c===c); if(!p) return;
+  $("#cI").value=p.I.join(",");
+  $("#cN").value=String(p.c<=31?p.c*3:p.c*2);
+}
+function readInputs(){
+  const raw=$("#cC").value;
+  if(raw!=="custom") S.c=parseInt(raw,10);
+  else S.c=Math.max(2,Math.min(400,parseInt($("#cN").dataset.c||S.c,10)||S.c));
   const parsed=$("#cI").value.split(/[,\s]+/).map(x=>parseInt(x,10))
     .filter(x=>Number.isFinite(x)&&x>=0&&x<S.c);
-  S.I=parsed.length?Array.from(new Set(parsed)):[0];
+  S.I=parsed.length?Array.from(new Set(parsed)).sort((a,b)=>a-b):[0];
+  S.N=Math.max(2,Math.min(420,+$("#cN").value||S.c*3));
   S.itr=+$("#cItr").value;
-  if(S.itr===2 && S.c**2>90) S.itr=1, $("#cItr").value="1";
+  /* keep the work bounded: c^itr subproblems */
+  while(S.itr>0 && Math.pow(S.c,S.itr)>420){ S.itr--; $("#cItr").value=String(S.itr); }
+}
+function recompute(){
+  readInputs();
+  DS=diffSetCheck(S.c,S.I);
   R=compute();
   if(S.sub>=R.subs.length) S.sub=0;
-  drawStrip(); drawSteps(); renderStage(); drawGrid(); drawMem();
+  drawBanner(); drawStrip(); drawSteps(); renderStage(); drawGrid(); drawMem();
 }
-["#cN","#cC","#cI","#cItr"].forEach(id=>$(id).addEventListener("change",recompute));
-$("#cI").addEventListener("input",()=>{clearTimeout(window._t);window._t=setTimeout(recompute,350);});
+buildCSelect();
+$("#cC").addEventListener("change",e=>{
+  if(e.target.value!=="custom") applyPreset(parseInt(e.target.value,10));
+  recompute();
+});
+$("#cN").addEventListener("change",recompute);
+$("#cItr").addEventListener("change",recompute);
+let tI=null;
+$("#cI").addEventListener("input",()=>{clearTimeout(tI);tI=setTimeout(()=>{
+  const cur=PRESETS.find(p=>p.c===S.c);
+  if(cur && $("#cI").value.split(/[,\s]+/).filter(Boolean).join(",")!==cur.I.join(","))
+    $("#cC").value=String(cur.c);         /* stay on this c, set is now custom */
+  recompute();},380);});
 $("#cCausal").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
   S.causal=b.dataset.v==="1";
   [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed",String(x===b)));recompute();});
@@ -729,12 +828,12 @@ $("#cAcc").addEventListener("click",e=>{const b=e.target.closest("button");if(!b
 $("#cTheme").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
   document.documentElement.setAttribute("data-theme",b.dataset.v);
   [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
-  drawGrid();});
+  renderStage(); drawGrid();});
 $("#prev").onclick=()=>{if(S.stage>0){S.stage--;drawSteps();renderStage();drawGrid();}};
 $("#next").onclick=()=>{if(S.stage<STAGES.length-1){S.stage++;drawSteps();renderStage();drawGrid();}};
 document.addEventListener("keydown",e=>{
   if(e.target.matches("input,select"))return;
   if(e.key==="ArrowRight")$("#next").click(); if(e.key==="ArrowLeft")$("#prev").click();});
-matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>drawGrid());
+matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>{renderStage();drawGrid();});
 recompute();
 </script>

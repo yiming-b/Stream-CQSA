@@ -16,6 +16,12 @@ memory, and keeps turning after the monolithic kernel has already failed.
 *Stream-CQSA: Avoiding Out-of-Memory in Attention Computation via Flexible
 Workload Scheduling*
 
+🧮 **Interactive walkthrough:** **[open the demo](https://claude.ai/code/artifact/c4e4c79d-9184-4ed9-aa4e-8543181f7b75)**
+— every step of the method, forward and backward, recomputed live as you change
+`c`, the interest set, depth, causality, and where the fp32 accumulator lives.
+Source in [`docs/demo/`](docs/demo/); it is a single self-contained file, so
+opening it locally works just as well.
+
 ---
 
 ## Results
