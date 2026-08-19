@@ -44,22 +44,25 @@ In normal use you never pick a depth yourself — see
 
 ### Backward
 
-| N | SDPA | SDPA<br>(mem-eff.) | FlashAttention-2 | Stream-CQSA<br>`itr=1` acc=GPU | Stream-CQSA<br>`itr=2` acc=GPU | Stream-CQSA<br>`itr=auto` acc=CPU |
+| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA auto<br>acc=CPU |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1M** | 26 s<br>12.1 GiB | 78 s<br>11.1 GiB | 25 s<br>10.1 GiB | 57 s<br>7.6 GiB | 68 s<br>**4.4 GiB** | *pending* |
-| **2M** | 106 s<br>24.1 GiB | 3 860 s<br>22.1 GiB | 101 s<br>20.1 GiB | 218 s<br>15.3 GiB | 262 s<br>**8.9 GiB** | *pending* |
-| **4M** | 429 s<br>48.3 GiB | 15 421 s<br>44.3 GiB | 407 s<br>40.3 GiB | 854 s<br>30.5 GiB | 998 s<br>**17.7 GiB** | *pending* |
-| **8M** | **OOM** | **OOM** | **OOM** | 3 372 s<br>61.1 GiB | 3 895 s<br>**35.5 GiB** | *pending* |
-| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *not run* † | *pending* |
+| **1M** | 26<br>12.1 | 78<br>11.1 | 25<br>10.1 | 57<br>7.6 | 68<br>**4.4** | *pending* |
+| **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | 218<br>15.3 | 262<br>**8.9** | *pending* |
+| **4M** | 429<br>48.3 | 15421<br>44.3 | 407<br>40.3 | 854<br>30.5 | 998<br>**17.7** | *pending* |
+| **8M** | **OOM** | **OOM** | **OOM** | 3372<br>61.1 | 3895<br>**35.5** | *pending* |
+| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *pending* † | *pending* |
 
-† **Why `itr=2` acc=GPU has no 16M number.** It is not an OOM — it was never
+Each cell is **wall-clock seconds** (top) over **peak GiB** (bottom).
+`FA-2` is FlashAttention-2; `CQSA` is Stream-CQSA.
+
+† **Why `itr=2` acc=GPU has no 16M number yet.** It is not an OOM — it was never
 attempted. The sweep retired a method from all larger N once it OOMed, but keyed
 that on the base method name rather than on `(method, itr)`, so when `itr=1`
-OOMed at 16M the whole family was marked dead and `itr=2` was skipped. That is a
-harness bug, since fixed. Whether it would have survived is genuinely open:
-`itr=2` used 35.5 GiB at 8M and this term is linear in N, so 16M projects to
-~71 GiB against the card's 79.3 GiB — plausible, but too close to call without
-running it.
+OOMed at 16M the whole family was marked dead and `itr=2` was skipped without
+being run. That is a harness bug, since fixed, and the cell is now queued.
+Whether it survives is genuinely open: `itr=2` used 35.5 GiB at 8M and that term
+is linear in N, so 16M projects to ~71 GiB against the card's 79.3 GiB —
+plausible, but too close to call without running it.
 
 **This is where the method pays off.** At 8M every baseline is out of memory and
 Stream-CQSA finishes, on the same card with the same numerics. And it is not
@@ -74,13 +77,15 @@ why it is the last column standing.
 
 ### Forward
 
-| N | SDPA | SDPA<br>(mem-eff.) | FlashAttention-2 | Stream-CQSA<br>`itr=1` acc=GPU | Stream-CQSA<br>`itr=2` acc=GPU | Stream-CQSA<br>`itr=auto` acc=CPU |
+| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA auto<br>acc=CPU |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1M** | 8 s<br>5.0 GiB | 15 s<br>5.0 GiB | 8 s<br>5.0 GiB | 14 s<br>6.5 GiB | 15 s<br>**4.2 GiB** | *pending* |
-| **2M** | 32 s<br>10.1 GiB | 61 s<br>10.0 GiB | 32 s<br>10.1 GiB | 53 s<br>13.0 GiB | 64 s<br>**8.3 GiB** | *pending* |
-| **4M** | 131 s<br>20.1 GiB | 245 s<br>20.0 GiB | 130 s<br>20.1 GiB | 203 s<br>25.9 GiB | 237 s<br>**16.7 GiB** | *pending* |
-| **8M** | 520 s<br>40.3 GiB | 966 s<br>40.0 GiB | 532 s<br>40.3 GiB | 796 s<br>51.8 GiB | 907 s<br>**33.3 GiB** | *pending* |
-| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *not run* † | *pending* |
+| **1M** | 8<br>5.0 | 15<br>5.0 | 8<br>5.0 | 14<br>6.5 | 15<br>**4.2** | *pending* |
+| **2M** | 32<br>10.1 | 61<br>10.0 | 32<br>10.1 | 53<br>13.0 | 64<br>**8.3** | *pending* |
+| **4M** | 131<br>20.1 | 245<br>20.0 | 130<br>20.1 | 203<br>25.9 | 237<br>**16.7** | *pending* |
+| **8M** | 520<br>40.3 | 966<br>40.0 | 532<br>40.3 | 796<br>51.8 | 907<br>**33.3** | *pending* |
+| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *pending* † | *pending* |
+
+Same units: **seconds** over **peak GiB**.
 
 **The forward story is more modest, and worth stating plainly.** In the acc=GPU
 configuration Stream-CQSA does *not* extend the forward's OOM boundary: every
@@ -390,19 +395,18 @@ from stream_cqsa import stream_cqsa_auto
 out = stream_cqsa_auto(q, k, v, causal=True)
 ```
 
-`stream_cqsa_auto` starts from the **safest** configuration rather than the
-cheapest — inputs streamed from the host, fp32 accumulator host-resident, depth
-automatic — and only deepens the decomposition if even that runs out of memory:
+That is exactly equivalent to these three settings, which together are what make
+an out-of-memory failure very unlikely:
 
-| # | `itr` (depth) | Q/K/V live on | fp32 accumulator lives on |
-|:---:|:---:|:---:|:---:|
-| 1 | **auto** | **host** | **host** |
-| 2 | 2 | **host** | **host** |
-| 3 | 3 | **host** | **host** |
-| 4 | 4 | **host** | **host** |
+| setting | value | why |
+|:---:|:---:|:---:|
+| `itr` | `"auto"` | depth chosen from available memory — including *not decomposing* when a monolithic call fits |
+| `stream_from_host` | `True` | Q/K/V stay in host memory; removes the largest O(N) device term |
+| `accumulate_on_gpu` | `False` | fp32 accumulator stays on the host; removes the other O(N) device term — the one no depth can shrink |
 
-Both O(N) device terms are already gone at rung 1, so depth is the only thing
-left to escalate. `info["config"]` (with `return_info=True`) reports which rung ran.
+Both O(N) device terms are gone, so what remains on the card is one subsequence
+at a time. If even that does not fit, the depth is increased automatically until
+it does; you never have to ask for that.
 
 > ⚠️ **`stream_cqsa_auto` relocates `q`, `k`, `v` to host memory in place.**
 > That relocation is what frees the device memory — it rebinds `.data` rather
@@ -414,16 +418,16 @@ left to escalate. `info["config"]` (with `return_info=True`) reports which rung 
 automatic, the planner returns `itr=0` and does *not* decompose when a
 monolithic call fits. Measured on an A100-40GB, forward, fp16, `B=1 H=8 D=64`:
 
-| N | cheapest-first (old default) | safe-first (current default) | speed-up |
+| N | device-resident first | safe first (current default) | speed-up |
 |:---:|:---:|:---:|:---:|
 | 262 144 | 3.52 s<br>2.37 GiB | 0.74 s<br>1.51 GiB | **4.8×** |
 | 1 048 576 | 13.31 s<br>9.48 GiB | 9.95 s<br>6.03 GiB | **1.3×** |
 
-The old ladder opened with a fixed `itr=1`, forcing a decomposition nobody
-asked for. If you *do* want device-resident-as-long-as-possible behaviour, it is
-still available as `stream_cqsa_auto(..., ladder=ESCALATION_FAST)` — lower
-per-subproblem overhead once a decomposition is genuinely needed, but it OOMs
-far earlier.
+An earlier default opened with a fixed `itr=1`, forcing a decomposition nobody
+asked for. That ordering is still reachable as
+`stream_cqsa_auto(..., ladder=ESCALATION_FAST)` — lower per-subproblem overhead
+once a decomposition is genuinely needed, because nothing crosses the bus, but it
+runs out of memory far earlier.
 
 ### On choosing the depth
 

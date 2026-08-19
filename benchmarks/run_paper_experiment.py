@@ -650,6 +650,13 @@ def main() -> int:
     ap.add_argument("--dense-acc-max-n", type=int, default=4096,
                     help="largest N for which a dense float64 *backward* reference is formed")
     ap.add_argument("--itr", default="auto")
+    ap.add_argument("--method-itr", default="",
+                    help="Per-method itr override, e.g. 'cqsa_accgpu=2' or "
+                         "'cqsa_accgpu=2,cqsa_acccpu=auto'. Without it every cqsa "
+                         "method runs every value in --itr-list, which is a cross "
+                         "product; this pins one method to one depth so a single "
+                         "process can measure two configurations that differ in "
+                         "exactly one axis while sharing the generated tensors.")
     ap.add_argument("--itr-list", default="",
                     help="comma list; runs each depth as its own row for the "
                          "Stream-CQSA methods. Needed because itr='auto' picks 0 "
@@ -689,6 +696,11 @@ def main() -> int:
     # sweep has to be able to measure it alongside pinned depths.
     itr_list = [(x.strip() if x.strip() == "auto" else int(x))
                 for x in a.itr_list.split(",") if x.strip()] or [itr]
+    method_itr: dict[str, list] = {}
+    for spec in (x.strip() for x in a.method_itr.split(",") if x.strip()):
+        mname, _, vals = spec.partition("=")
+        method_itr[mname.strip()] = [(y.strip() if y.strip() == "auto" else int(y))
+                                     for y in vals.split("|") if y.strip()]
     DT = {"fp16": torch.float16, "bf16": torch.bfloat16}
 
     for k in mts:
@@ -702,6 +714,7 @@ def main() -> int:
                      acc_rows=arows, seeds=seeds, itr=str(itr), n=ns,
                      n_per_direction=per_dir, dtypes=dts,
                      input_scale=a.input_scale, itr_list=itr_list,
+                     method_itr={k: [str(x) for x in v] for k, v in method_itr.items()},
                      directions=dirs, methods=mts, tag=a.tag,
                      started=time.strftime("%Y-%m-%d %H:%M:%S")))
     with open(os.path.join(a.out_dir, "meta.json"), "w") as fh:
@@ -737,7 +750,8 @@ def main() -> int:
                     continue
                 for seed in seeds:
                     for key, itr_use in [(k, i) for k in mts
-                                         for i in (itr_list if k.startswith("cqsa")
+                                         for i in (method_itr.get(k, itr_list)
+                                                   if k.startswith("cqsa")
                                                    else [itr])]:
                         if not METHODS[key].available():
                             continue
