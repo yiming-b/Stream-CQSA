@@ -211,5 +211,13 @@ setup(
     ext_modules=[build_extension()],
     cmdclass={"build_ext": BuildExtension.with_options(use_ninja=True)},
     python_requires=">=3.9",
-    install_requires=["torch"],
+    # numpy is imported at module scope by stable_stream; torch does not pull it
+    # in, so a fresh install without it fails at `import stream_cqsa`.
+    install_requires=["torch", "numpy"],
+    extras_require={
+        "plot": ["matplotlib"],          # visualize_cqs_mask, figure generators
+        "progress": ["tqdm"],            # optional progress bars
+        "test": ["pytest"],
+        "bench": ["matplotlib", "tqdm", "pytest"],
+    },
 )

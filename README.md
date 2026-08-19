@@ -73,34 +73,138 @@ the table will be updated when they land, rather than claimed now.
 
 ## Install
 
-Requires a CUDA GPU of compute capability ≥ 8.0 (Ampere or newer), PyTorch with
-CUDA, and `ninja`. The CUDA extension is **compiled for your own GPU** — there
-are no prebuilt wheels, because the kernel set is large and building only your
-architecture keeps compile time and binary size sane.
+There are **no prebuilt wheels**: the CUDA extension is compiled for the GPU you
+actually have, which keeps compile time and binary size sane.
+
+### Requirements
+
+| | |
+|---|---|
+| GPU | NVIDIA, compute capability **≥ 8.0** (Ampere or newer: A100, A6000, L40S, H100, …) |
+| CUDA toolkit | `nvcc` must be present. It does **not** need to be on `PATH` — PyTorch looks in `/usr/local/cuda` — but its major version should match your PyTorch build. |
+| PyTorch | any recent version, built for **your** CUDA. Install it *before* this package. |
+| Python | ≥ 3.9 |
+| build | `ninja` (installed below); a C++17 host compiler |
+
+Check what you have:
 
 ```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu121  # your CUDA
+nvidia-smi --query-gpu=name,compute_cap --format=csv   # need compute_cap >= 8.0
+nvcc --version || ls /usr/local/cuda/bin/nvcc          # need one of these
+```
+
+### Steps
+
+```bash
+# 1. PyTorch first, matching your CUDA (cu126 / cu128 / cu130 / ...)
+pip install torch --index-url https://download.pytorch.org/whl/cu128
+pip install ninja
+
+# 2. this package
 git clone https://github.com/yiming-b/Stream-CQSA.git
 cd Stream-CQSA
 pip install -e . --no-build-isolation
 ```
 
 **`--no-build-isolation` is not optional.** The extension compiles against the
-PyTorch you already have. With build isolation, pip downloads a *second* torch
-into a throwaway environment, builds the extension against that ABI, and the
-result fails to import against yours. This is the same constraint FlashAttention
-ships under, for the same reason.
+PyTorch you already have. With build isolation pip downloads a *second* torch
+into a throwaway environment, compiles against that ABI, and the result fails to
+import against yours. This is the same constraint FlashAttention ships under,
+for the same reason.
 
-`setup.py` detects your architecture via `torch.cuda.get_device_capability()`
-and builds the fp16 + bf16 × head-dim 64/128 × causal/non-causal kernel set.
-Expect **20–60 minutes** on a multi-core node; `MAX_JOBS=8 pip install -e .`
-controls parallelism if you are memory-limited while compiling.
+Expect **roughly half an hour** — measured at **33 minutes** with `MAX_JOBS=16`
+on a 80-core node. The last few backward kernels dominate and are largely
+serial in `ptxas`, so more cores help less than you would hope. `MAX_JOBS` caps
+parallel compilation; lower it if the build is killed for memory (each `nvcc`
+can take ~2 GB):
 
 ```bash
-pytest tests/ -q          # verify the build
+MAX_JOBS=16 pip install -e . --no-build-isolation
 ```
 
----
+### Verify
+
+```bash
+python examples/quickstart.py     # end-to-end against SDPA, ~10 s
+
+pip install pytest                # not a runtime dependency
+pytest tests/ -q                  # 243 tests, ~1 min
+```
+
+`quickstart.py` prints the escalation rung that was chosen and the relative
+error against SDPA; anything near `1e-04` in fp16 is correct.
+
+<details>
+<summary>Known-good configuration</summary>
+
+These exact steps were rehearsed end-to-end in a clean virtualenv against a
+fresh clone of this repository:
+
+| | |
+|---|---|
+| GPU / driver | A100-PCIE-40GB, driver 610.57.04 |
+| CUDA toolkit | nvcc 13.3 (at `/usr/local/cuda`, not on `PATH`) |
+| PyTorch | 2.13.0+cu130, installed from the cu130 index |
+| Python | 3.11 |
+| build | `MAX_JOBS=16`, 33 min, exit 0 |
+| result | `quickstart.py` rel. err 1.447e-04; **243 tests passed** |
+
+The extension also builds and runs against torch 2.10.0+cu130, so it is not
+pinned to one PyTorch release.
+
+</details>
+
+### Building where the GPU is not visible
+
+`setup.py` reads the target architecture from
+`torch.cuda.get_device_capability()`. **On a cluster login node, or in a
+container with no GPU attached, there is nothing to read** — it prints a warning
+and falls back to `sm_80`, which will produce a build that does not run on, say,
+an H100. Set the architecture explicitly whenever you build somewhere other than
+the machine you will run on:
+
+```bash
+FLASH_ATTN_CUDA_ARCHS="90" pip install -e . --no-build-isolation   # H100
+FLASH_ATTN_CUDA_ARCHS="80;90" pip install -e . --no-build-isolation  # fat binary
+```
+
+`80` = A100, `86` = A6000/3090, `89` = L40S/4090, `90` = H100, `100` = B200.
+
+### Choosing the kernel set
+
+The default builds fp16 + bf16 × head-dim 64 and 128 × causal and non-causal,
+which covers most transformers. Override with `CQSA_KERNEL_SET`:
+
+| value | forward head dims | backward head dims | when |
+|---|---|---|---|
+| `common` *(default)* | 64, 128 | 64, 128 | almost always |
+| `full` | 32, 64, 96, 128, 192, 256 | 64, 128 | you need a wide-head **forward** |
+| `a100_fp16_hdim128` | 128 (fp16 only) | 128 | fast iteration while developing |
+
+Both sets carry fp16 **and** bf16, causal and non-causal.
+
+```bash
+CQSA_KERNEL_SET=full pip install -e . --no-build-isolation
+```
+
+> **The backward is head-dim 64 and 128 only, in every kernel set** — those are
+> the only backward kernels in the tree. `full` widens the forward, not the
+> backward. If you need to *train* at head-dim 96 or 256, this package cannot do
+> it yet.
+
+(`a100_fp16_hdim64_128` and `a100_fp16_hdim64_noncau` also exist; both are
+narrow development builds, and the latter is the one to avoid — it is fp16,
+head-dim 64, **non-causal only**.)
+
+### If it goes wrong
+
+| symptom | cause |
+|---|---|
+| `undefined symbol` / `ImportError` on `import stream_cqsa` | built against a different torch — rebuild with `--no-build-isolation`, or you upgraded torch after building |
+| `no kernel image is available for execution` | built for the wrong arch; set `FLASH_ATTN_CUDA_ARCHS` and rebuild |
+| `this CQSA build only supports head_dim=64 or 128` | rebuild with `CQSA_KERNEL_SET=full` |
+| `nvcc: not found` / `CUDA_HOME` unset | install the CUDA toolkit, or `export CUDA_HOME=/usr/local/cuda` |
+| build killed | lower `MAX_JOBS` |
 
 ## Use it
 
