@@ -1,0 +1,740 @@
+<title>Stream-CQSA Walkthrough</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+
+<style>
+:root{
+  --bg:#f6f7f5; --surface:#fff; --surface2:#ecefeb; --line:#d7dcd6; --line2:#c2c9c1;
+  --ink:#14181a; --ink2:#4a5250; --ink3:#79817e;
+  --dev:#0f8f80; --devsoft:#d3e9e5; --devline:#8fcac2;
+  --host:#b4661f; --hostsoft:#f2e2cf; --hostline:#dfb887;
+  --warn:#b3392f; --warnsoft:#f6dcd8; --ok:#2f7d3a;
+  --owner:#4d5bd0; --ownersoft:#dfe2f8;
+  --r:3px;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d1011; --surface:#151a1b; --surface2:#1e2426; --line:#2c3436; --line2:#3d4749;
+    --ink:#e7ebe9; --ink2:#a4aeab; --ink3:#6f7a77;
+    --dev:#3fc9b4; --devsoft:#123531; --devline:#1f6b60;
+    --host:#e29a4d; --hostsoft:#3a2a15; --hostline:#7a5522;
+    --warn:#ef6d5e; --warnsoft:#3d1c19; --ok:#6cc27a;
+    --owner:#8b96ee; --ownersoft:#22264d;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d1011; --surface:#151a1b; --surface2:#1e2426; --line:#2c3436; --line2:#3d4749;
+  --ink:#e7ebe9; --ink2:#a4aeab; --ink3:#6f7a77;
+  --dev:#3fc9b4; --devsoft:#123531; --devline:#1f6b60;
+  --host:#e29a4d; --hostsoft:#3a2a15; --hostline:#7a5522;
+  --warn:#ef6d5e; --warnsoft:#3d1c19; --ok:#6cc27a;
+  --owner:#8b96ee; --ownersoft:#22264d;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--sans); font-size:14px; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{text-wrap:balance;margin:0}
+.wrap{max-width:1440px;margin:0 auto;padding:22px 22px 60px}
+
+/* ---------- masthead ---------- */
+.mast{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;justify-content:space-between;
+      padding-bottom:16px;border-bottom:1px solid var(--line)}
+.mast h1{font-size:22px;font-weight:600;letter-spacing:-.015em}
+.mast h1 span{color:var(--dev)}
+.tag{font-size:13px;color:var(--ink2);max-width:62ch;margin-top:5px}
+.tag code{font-family:var(--mono);font-size:12px;background:var(--surface2);padding:1px 4px;border-radius:var(--r)}
+
+/* ---------- controls ---------- */
+.controls{display:flex;flex-wrap:wrap;gap:0;margin:16px 0 0;background:var(--surface);
+          border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.ctl{display:flex;flex-direction:column;gap:5px;padding:11px 14px;border-right:1px solid var(--line);flex:0 0 auto}
+.ctl:last-child{border-right:0}
+.ctl label{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3)}
+.ctl input[type=number],.ctl input[type=text],.ctl select{
+  font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--ink);
+  border:1px solid var(--line2);border-radius:var(--r);padding:4px 7px}
+.ctl input[type=number]{width:66px}
+.ctl input[type=text]{width:104px}
+.seg{display:flex;border:1px solid var(--line2);border-radius:var(--r);overflow:hidden}
+.seg button{font-family:var(--mono);font-size:12px;background:var(--bg);color:var(--ink2);
+  border:0;padding:5px 11px;cursor:pointer;border-right:1px solid var(--line2)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--dev);color:#fff}
+.seg button.host[aria-pressed="true"]{background:var(--host);color:#fff}
+.seg button:focus-visible,.ctl input:focus-visible,select:focus-visible{outline:2px solid var(--dev);outline-offset:1px}
+
+/* ---------- readout strip ---------- */
+.strip{display:flex;flex-wrap:wrap;gap:0;margin-top:-1px;background:var(--surface2);
+       border:1px solid var(--line);border-radius:var(--r)}
+.stat{padding:9px 14px;border-right:1px solid var(--line);flex:1 1 auto;min-width:118px}
+.stat:last-child{border-right:0}
+.stat b{display:block;font-family:var(--mono);font-size:15px;font-weight:600;
+        font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.stat span{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
+.stat.good b{color:var(--ok)} .stat.bad b{color:var(--warn)}
+
+/* ---------- 3-column shell ---------- */
+.shell{display:grid;grid-template-columns:210px minmax(0,1fr) 300px;gap:16px;margin-top:16px;align-items:start}
+@media(max-width:1120px){.shell{grid-template-columns:196px minmax(0,1fr)}.side{grid-column:1/-1;display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:16px}}
+@media(max-width:720px){.shell{grid-template-columns:1fr}}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.panel h2{font-size:11px;font-family:var(--mono);letter-spacing:.1em;text-transform:uppercase;
+          color:var(--ink3);padding:10px 13px;border-bottom:1px solid var(--line);font-weight:500}
+.pad{padding:13px}
+
+/* ---------- stage rail ---------- */
+.rail{position:sticky;top:14px}
+.phase{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+       color:var(--ink3);padding:11px 13px 5px}
+.step{display:flex;gap:9px;align-items:baseline;width:100%;text-align:left;background:none;border:0;
+      border-left:2px solid transparent;padding:6px 13px;cursor:pointer;color:var(--ink2);font:inherit;font-size:13px}
+.step:hover{background:var(--surface2);color:var(--ink)}
+.step[aria-current="true"]{background:var(--surface2);border-left-color:var(--dev);color:var(--ink);font-weight:600}
+.step .n{font-family:var(--mono);font-size:11px;color:var(--ink3);min-width:15px}
+.step[aria-current="true"] .n{color:var(--dev)}
+.step:focus-visible{outline:2px solid var(--dev);outline-offset:-2px}
+.railnav{display:flex;gap:7px;padding:11px 13px;border-top:1px solid var(--line)}
+.railnav button{flex:1;font-family:var(--mono);font-size:12px;background:var(--bg);color:var(--ink);
+  border:1px solid var(--line2);border-radius:var(--r);padding:5px;cursor:pointer}
+.railnav button:hover:not(:disabled){border-color:var(--dev);color:var(--dev)}
+.railnav button:disabled{opacity:.4;cursor:default}
+
+/* ---------- stage body ---------- */
+.stagehead{padding:14px 16px 0}
+.stagehead h3{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.stagehead p{color:var(--ink2);margin:6px 0 0;max-width:66ch}
+.formula{font-family:var(--mono);font-size:13px;background:var(--surface2);border:1px solid var(--line);
+  border-radius:var(--r);padding:9px 12px;margin:12px 16px 0;overflow-x:auto;white-space:pre;color:var(--ink)}
+.stagebody{padding:14px 16px 16px;display:flex;flex-direction:column;gap:14px}
+.note{font-size:12.5px;color:var(--ink2);border-left:2px solid var(--line2);padding-left:10px;max-width:70ch}
+.note.warn{border-left-color:var(--warn);color:var(--warn)}
+.note.dev{border-left-color:var(--dev)}
+.note.host{border-left-color:var(--host)}
+
+.blk h4{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+        color:var(--ink3);margin:0 0 7px;font-weight:500}
+.scroll{overflow-x:auto;padding-bottom:2px}
+
+/* chunk strip */
+.chunks{display:flex;gap:3px;flex-wrap:wrap}
+.chunk{border:1px solid var(--line2);border-radius:var(--r);padding:5px 7px;min-width:34px;text-align:center;
+       font-family:var(--mono);font-size:11px;background:var(--surface2);color:var(--ink3)}
+.chunk .cid{display:block;font-size:9px;letter-spacing:.07em;color:var(--ink3)}
+.chunk .tok{display:block;color:var(--ink2);font-size:11px}
+.chunk.sel{background:var(--devsoft);border-color:var(--devline);color:var(--dev)}
+.chunk.sel .tok,.chunk.sel .cid{color:var(--dev)}
+.chunk.own{background:var(--ownersoft);border-color:var(--owner)}
+.chunk.own .cid,.chunk.own .tok{color:var(--owner)}
+
+/* token chips */
+.toks{display:flex;flex-wrap:wrap;gap:3px}
+.tk{font-family:var(--mono);font-size:11px;padding:2px 5px;border-radius:var(--r);
+    background:var(--surface2);border:1px solid var(--line);color:var(--ink2);font-variant-numeric:tabular-nums}
+.tk.own{background:var(--ownersoft);border-color:var(--owner);color:var(--owner)}
+.tk.q{background:var(--devsoft);border-color:var(--devline);color:var(--dev)}
+
+/* matrices */
+table.mx{border-collapse:collapse;font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums}
+table.mx th{color:var(--ink3);font-weight:500;font-size:10px;padding:2px 5px;text-align:right}
+table.mx td{padding:2px 5px;text-align:right;border:1px solid var(--line);color:var(--ink2);min-width:44px}
+table.mx td.keep{background:var(--devsoft);color:var(--dev);font-weight:500}
+table.mx td.grp{background:var(--surface2);color:var(--ink3)}
+table.mx td.cau{background:transparent;color:var(--ink3);opacity:.45}
+table.mx td.hi{background:var(--ownersoft);color:var(--owner);font-weight:600}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+.legend i{display:inline-block;width:9px;height:9px;border:1px solid var(--line2);
+  border-radius:2px;margin-right:5px;vertical-align:-1px}
+
+/* residency diagram */
+.mem{display:flex;flex-direction:column;gap:9px}
+.membox{border:1px solid var(--line2);border-radius:var(--r);padding:9px 11px;background:var(--surface2)}
+.membox.d{border-color:var(--devline);background:var(--devsoft)}
+.membox.h{border-color:var(--hostline);background:var(--hostsoft)}
+.membox h5{margin:0 0 6px;font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;font-weight:600}
+.membox.d h5{color:var(--dev)} .membox.h h5{color:var(--host)}
+.memrow{display:flex;justify-content:space-between;gap:10px;font-family:var(--mono);font-size:11.5px;
+        color:var(--ink2);font-variant-numeric:tabular-nums;padding:1px 0}
+.memrow b{font-weight:500;color:var(--ink)}
+.bus{text-align:center;font-family:var(--mono);font-size:10.5px;color:var(--ink3);padding:1px 0}
+canvas{display:block;max-width:100%;height:auto;image-rendering:pixelated;border:1px solid var(--line);border-radius:var(--r)}
+.cap{font-family:var(--mono);font-size:10.5px;color:var(--ink3);margin-top:8px;line-height:1.5}
+.foot{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);
+      font-size:12.5px;color:var(--ink3);display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
+.foot a{color:var(--dev)}
+.subsel{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.subsel button{font-family:var(--mono);font-size:11px;background:var(--bg);border:1px solid var(--line2);
+  color:var(--ink2);border-radius:var(--r);padding:3px 7px;cursor:pointer}
+.subsel button[aria-pressed="true"]{background:var(--dev);border-color:var(--dev);color:#fff}
+.subsel button:hover:not([aria-pressed="true"]){border-color:var(--dev);color:var(--dev)}
+@media(prefers-reduced-motion:no-preference){.step,.seg button,.subsel button{transition:background .12s,color .12s,border-color .12s}}
+</style>
+
+<div class="wrap">
+
+<div class="mast">
+  <div>
+    <h1>Stream&#8209;CQSA <span>step by step</span></h1>
+    <p class="tag">One attention call, decomposed by a <em>cyclic quorum set</em> and put back together
+      exactly. Every number below is computed live from the controls — including the
+      <code>group_runs</code> masking and the <code>(acc, l, m)</code> merge the real kernel performs.</p>
+  </div>
+</div>
+
+<div class="controls" role="group" aria-label="Algorithm parameters">
+  <div class="ctl"><label for="cN">N — tokens</label><input id="cN" type="number" min="7" max="63" step="1" value="21"></div>
+  <div class="ctl"><label for="cC">c — chunks</label><input id="cC" type="number" min="3" max="13" step="1" value="7"></div>
+  <div class="ctl"><label for="cI">interest set</label><input id="cI" type="text" value="0,1,3" spellcheck="false"></div>
+  <div class="ctl"><label for="cItr">itr — depth</label>
+    <select id="cItr"><option value="0">0 — monolithic</option><option value="1" selected>1</option><option value="2">2</option></select></div>
+  <div class="ctl"><label>causal</label>
+    <div class="seg" id="cCausal"><button data-v="1" aria-pressed="true">on</button><button data-v="0" aria-pressed="false">off</button></div></div>
+  <div class="ctl"><label>fp32 accumulator</label>
+    <div class="seg" id="cAcc"><button data-v="gpu" aria-pressed="true">device</button><button class="host" data-v="cpu" aria-pressed="false">host</button></div></div>
+  <div class="ctl"><label>theme</label>
+    <div class="seg" id="cTheme"><button data-v="light" aria-pressed="false">light</button><button data-v="dark" aria-pressed="false">dark</button></div></div>
+</div>
+
+<div class="strip" id="strip"></div>
+
+<div class="shell">
+
+  <div class="panel rail">
+    <div class="phase">Forward</div>
+    <div id="stepsF"></div>
+    <div class="phase">Backward</div>
+    <div id="stepsB"></div>
+    <div class="railnav">
+      <button id="prev" type="button">&#8592; prev</button>
+      <button id="next" type="button">next &#8594;</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="stagehead"><h3 id="stTitle"></h3><p id="stLede"></p></div>
+    <div class="formula" id="stFormula"></div>
+    <div class="stagebody" id="stBody"></div>
+  </div>
+
+  <div class="side">
+    <div class="panel" style="margin-bottom:16px">
+      <h2>Pair coverage</h2>
+      <div class="pad">
+        <canvas id="grid" width="440" height="440" aria-label="Query by key pair grid showing which subproblem covers each pair"></canvas>
+        <div class="legend" style="margin-top:9px">
+          <span><i style="background:var(--dev);border-color:var(--dev)"></i>this subproblem</span>
+          <span><i style="background:var(--devsoft);border-color:var(--devline)"></i>another one</span>
+          <span><i style="background:var(--warnsoft);border-color:var(--warn)"></i>uncovered</span>
+        </div>
+        <p class="cap" id="gridCap"></p>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Where the data lives</h2>
+      <div class="pad"><div class="mem" id="mem"></div><p class="cap" id="memCap"></p></div>
+    </div>
+  </div>
+</div>
+
+<div class="foot">
+  <span>Faithful port of <code>stream_cqsa.cqs_mask</code> and the <code>(acc, l, m)</code> merge in
+    <code>stable_stream.py</code>. Values are fp64 in the browser; the kernel keeps fp32 statistics.</span>
+  <span><a href="https://github.com/yiming-b/Stream-CQSA">github.com/yiming-b/Stream-CQSA</a></span>
+</div>
+</div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s), el=(t,c,x)=>{const n=document.createElement(t);if(c)n.className=c;
+  if(x!==undefined)n.textContent=x;return n;};
+const fmt=(v,d=3)=>!isFinite(v)?(v>0?"inf":"−inf"):(Math.abs(v)<1e-12?"0":v.toFixed(d));
+
+/* ---------------- state ---------------- */
+const S={N:21,c:7,I:[0,1,3],itr:1,causal:true,acc:"gpu",stage:0,sub:0};
+
+/* ---------------- CQS mask: faithful port ---------------- */
+function chunkLayout(n,c){const q=Math.floor(n/c),r=n%c,sizes=[],starts=[],ends=[];
+  for(let i=0;i<c;i++)sizes.push(q+(i<r?1:0));
+  let o=0;for(let i=0;i<c;i++){starts.push(o);o+=sizes[i];ends.push(o);}
+  return{sizes,starts,ends};}
+const quorumChunks=(q,c,I)=>I.map(off=>((q+off)%c+c)%c);
+
+function buildPathState(N,path,I,c){
+  let tokenIds=Array.from({length:N},(_,i)=>i);
+  const labelHistory=[],trace=[];
+  for(const q of path){
+    const L=tokenIds.length, {starts,ends}=chunkLayout(L,c), chunks=quorumChunks(q,c,I);
+    const labelsCur=new Int16Array(L);
+    for(let ch=0;ch<c;ch++) for(let i=starts[ch];i<ends[ch];i++) labelsCur[i]=ch;
+    const gather=[]; const localRanges={}; let off=0;
+    for(const ch of chunks){ const s=starts[ch],e=ends[ch];
+      if(e<=s){localRanges[ch]=[off,off];continue;}
+      for(let i=s;i<e;i++)gather.push(i);
+      localRanges[ch]=[off,off+(e-s)]; off+=e-s; }
+    for(let t=0;t<labelHistory.length;t++) labelHistory[t]=gather.map(g=>labelHistory[t][g]);
+    labelHistory.push(gather.map(g=>labelsCur[g]));
+    tokenIds=gather.map(g=>tokenIds[g]);
+    trace.push({subseq:q,chunks,localRanges,len:tokenIds.length,starts:starts.slice(),ends:ends.slice(),parentLen:L});
+  }
+  return{tokenIds,labelHistory,trace};
+}
+function runsOf(idx){ if(!idx.length)return[]; const out=[];let s=idx[0],p=s;
+  for(let i=1;i<idx.length;i++){const x=idx[i]; if(x===p+1){p=x;continue;} out.push([s,p+1]); s=x;p=x;}
+  out.push([s,p+1]); return out; }
+
+function genMask(N,path,I,c){
+  const {tokenIds,labelHistory,trace}=buildPathState(N,path,I,c);
+  const groupRuns=[];
+  path.forEach((q,it)=>{ if(it>=labelHistory.length)return;
+    for(const ch of trace[it].chunks){ if(ch===q)continue;
+      const idx=[]; labelHistory[it].forEach((lb,i)=>{if(lb===ch)idx.push(i);});
+      if(idx.length) groupRuns.push(runsOf(idx)); } });
+  return{tokenIds,groupRuns,trace,localSize:tokenIds.length};
+}
+/* keep[i][j] = the pair is THIS subproblem's responsibility */
+function keepMask(L,groupRuns){
+  const masked=Array.from({length:L},()=>new Uint8Array(L));
+  for(const runs of groupRuns){ const idx=[];
+    for(const [s,e] of runs) for(let i=s;i<e;i++) idx.push(i);
+    for(const a of idx) for(const b of idx) masked[a][b]=1; }
+  return masked.map(r=>Array.from(r,v=>!v));
+}
+const allPaths=(c,itr)=>{ if(itr<=0)return[[]]; let out=[[]];
+  for(let d=0;d<itr;d++){const nx=[];for(const p of out)for(let q=0;q<c;q++)nx.push([...p,q]);out=nx;}
+  return out; };
+
+/* ---------------- deterministic toy tensors ---------------- */
+const D=4;
+function rng(seed){let s=seed>>>0;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296*2-1;};}
+function mkTensor(N,seed){const r=rng(seed),t=[];
+  for(let i=0;i<N;i++){const row=[];for(let d=0;d<D;d++)row.push(+(r()*1.4).toFixed(3));t.push(row);}return t;}
+const dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0);
+
+/* ---------------- the computation ---------------- */
+function compute(){
+  const {N,c,I,itr,causal}=S;
+  const Q=mkTensor(N,7),K=mkTensor(N,13),V=mkTensor(N,29),dO=mkTensor(N,53);
+  const scale=1/Math.sqrt(D);
+  const paths=allPaths(c,itr);
+
+  const subs=paths.map(path=>{
+    const g=itr===0?{tokenIds:Array.from({length:N},(_,i)=>i),groupRuns:[],trace:[],localSize:N}
+                   :genMask(N,path,I,c);
+    const L=g.localSize, keep=itr===0?Array.from({length:L},()=>Array(L).fill(true)):keepMask(L,g.groupRuns);
+    const eff=[],scores=[];
+    for(let i=0;i<L;i++){ const er=[],sr=[];
+      for(let j=0;j<L;j++){
+        const ok=keep[i][j] && (!causal || g.tokenIds[j]<=g.tokenIds[i]);
+        er.push(ok); sr.push(ok?scale*dot(Q[g.tokenIds[i]],K[g.tokenIds[j]]):-Infinity);
+      } eff.push(er); scores.push(sr); }
+    /* local online-softmax statistics, exactly as the kernel returns them */
+    const m=[],l=[],acc=[];
+    for(let i=0;i<L;i++){
+      let mi=-Infinity; for(let j=0;j<L;j++) if(scores[i][j]>mi) mi=scores[i][j];
+      let li=0; const a=new Array(D).fill(0);
+      if(isFinite(mi)) for(let j=0;j<L;j++){ if(!eff[i][j])continue;
+        const p=Math.exp(scores[i][j]-mi); li+=p; for(let d=0;d<D;d++) a[d]+=p*V[g.tokenIds[j]][d]; }
+      m.push(mi); l.push(li); acc.push(a);
+    }
+    return{path,...g,keep,eff,scores,m,l,acc,L};
+  });
+
+  /* global merge, max-shifted — never forms exp(lse) */
+  const gm=new Array(N).fill(-Infinity), gl=new Array(N).fill(0),
+        ga=Array.from({length:N},()=>new Array(D).fill(0));
+  const mergeLog=[];
+  subs.forEach((sb,si)=>{
+    let touched=0;
+    for(let i=0;i<sb.L;i++){
+      const t=sb.tokenIds[i]; if(!isFinite(sb.m[i])||sb.l[i]===0) continue; touched++;
+      const mp=Math.max(gm[t],sb.m[i]);
+      const co=isFinite(gm[t])?Math.exp(gm[t]-mp):0, cn=Math.exp(sb.m[i]-mp);
+      gl[t]=gl[t]*co+sb.l[i]*cn;
+      for(let d=0;d<D;d++) ga[t][d]=ga[t][d]*co+sb.acc[i][d]*cn;
+      gm[t]=mp;
+    }
+    mergeLog.push({si,touched});
+  });
+  const O=ga.map((a,i)=>gl[i]>0?a.map(x=>x/gl[i]):a.map(()=>0));
+  const lse=gm.map((mm,i)=>gl[i]>0?mm+Math.log(gl[i]):-Infinity);
+
+  /* reference: dense attention over the same admissible set */
+  const ref=[];
+  for(let i=0;i<N;i++){
+    const sc=[];let mi=-Infinity;
+    for(let j=0;j<N;j++){const ok=!causal||j<=i;const s=ok?scale*dot(Q[i],K[j]):-Infinity;sc.push(s);if(s>mi)mi=s;}
+    let li=0;const a=new Array(D).fill(0);
+    for(let j=0;j<N;j++){if(!isFinite(sc[j]))continue;const p=Math.exp(sc[j]-mi);li+=p;
+      for(let d=0;d<D;d++)a[d]+=p*V[j][d];}
+    ref.push(li>0?a.map(x=>x/li):a.map(()=>0));
+  }
+  let num=0,den=0;
+  for(let i=0;i<N;i++)for(let d=0;d<D;d++){num+=(O[i][d]-ref[i][d])**2;den+=ref[i][d]**2;}
+  const relErr=den>0?Math.sqrt(num/den):0;
+
+  /* ---- backward, global-lse form: P = exp(s - lse) <= 1 ---- */
+  const Dv=O.map((o,i)=>dot(dO[i],o));                        // D[q] = sum_d dO*O
+  const dQ=Array.from({length:N},()=>new Array(D).fill(0)),
+        dK=Array.from({length:N},()=>new Array(D).fill(0)),
+        dV=Array.from({length:N},()=>new Array(D).fill(0));
+  let pMax=0;
+  subs.forEach(sb=>{
+    for(let i=0;i<sb.L;i++){ const qi=sb.tokenIds[i];
+      for(let j=0;j<sb.L;j++){ if(!sb.eff[i][j])continue; const kj=sb.tokenIds[j];
+        const P=Math.exp(sb.scores[i][j]-lse[qi]); if(P>pMax)pMax=P;
+        for(let d=0;d<D;d++) dV[kj][d]+=P*dO[qi][d];
+        const dP=dot(dO[qi],V[kj]);
+        const dS=P*(dP-Dv[qi]);
+        for(let d=0;d<D;d++){ dQ[qi][d]+=scale*dS*K[kj][d]; dK[kj][d]+=scale*dS*Q[qi][d]; }
+      } }
+  });
+
+  /* coverage over the global grid */
+  const cover=Array.from({length:N},()=>new Int16Array(N).fill(-1));
+  subs.forEach((sb,si)=>{ for(let i=0;i<sb.L;i++)for(let j=0;j<sb.L;j++)
+      if(sb.eff[i][j]) cover[sb.tokenIds[i]][sb.tokenIds[j]]=si; });
+  let admissible=0,covered=0,dup=0;
+  const seen=Array.from({length:N},()=>new Int16Array(N));
+  subs.forEach(sb=>{for(let i=0;i<sb.L;i++)for(let j=0;j<sb.L;j++)
+      if(sb.eff[i][j])seen[sb.tokenIds[i]][sb.tokenIds[j]]++;});
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){ if(S.causal&&j>i)continue; admissible++;
+    if(seen[i][j]>0)covered++; if(seen[i][j]>1)dup++; }
+
+  return{Q,K,V,dO,scale,subs,gm,gl,ga,O,lse,relErr,Dv,dQ,dK,dV,pMax,cover,
+         admissible,covered,dup,paths,mergeLog};
+}
+
+/* ---------------- byte model ---------------- */
+function bytes(R){
+  const {N}=S, H=1, Dd=64;                       // per-head model, D=64 like the paper
+  const inputs=3*H*N*Dd*2, accum=H*N*Dd*4+2*H*N*4;
+  const maxL=Math.max(...R.subs.map(s=>s.L));
+  const inflight=3*H*maxL*Dd*2 + H*maxL*Dd*4;
+  const onDev=inflight+(S.acc==="gpu"?accum:0);
+  const perSub=3*H*maxL*Dd*2 + (S.acc==="cpu"?(H*maxL*Dd*4+2*H*maxL*4):0);
+  return{inputs,accum,inflight,onDev,host:inputs+(S.acc==="cpu"?accum:0),
+         traffic:perSub*R.subs.length,maxL};
+}
+const kb=b=>b<1024?b+" B":b<1048576?(b/1024).toFixed(1)+" KiB":(b/1048576).toFixed(2)+" MiB";
+
+/* ---------------- stages ---------------- */
+const STAGES=[
+ {ph:"F",t:"The problem",lede:"Attention over N tokens is a grid of query–key pairs. Under a causal mask only the lower triangle is admissible. The whole method is a rule for handing out these pairs.",
+  f:"O = softmax(QKᵀ · D^-½) V        pairs = N² (causal: N(N+1)/2)"},
+ {ph:"F",t:"Split into c chunks",lede:"The sequence is cut into c contiguous chunks. The first N mod c chunks take one extra token, so the split is as even as it can be.",
+  f:"sizes = [⌈N/c⌉ × (N mod c), ⌊N/c⌋ × (c − N mod c)]"},
+ {ph:"F",t:"Pick a quorum",lede:"Subproblem i gathers the chunks named by the interest set, offset by i and wrapped. With a λ=1 difference set every pair of chunks meets in exactly one quorum — which is what makes the decomposition a partition.",
+  f:"chunks(i) = { (i + off) mod c : off ∈ I }"},
+ {ph:"F",t:"Gather the subsequence",lede:"Those chunks are concatenated into a local subsequence. Global token order is preserved inside each chunk, so a local causal mask over the gathered positions is still exact.",
+  f:"token_ids = concat( chunk[ch] for ch in chunks(i) )"},
+ {ph:"F",t:"Mask what belongs to others",lede:"Inside the quorum, pairs where BOTH tokens come from the same non-owner chunk are dropped — another subproblem owns that block. This is group_runs, and it is why the pairs partition instead of overlapping.",
+  f:"keep[a][b] = ¬ ∃ group g : a ∈ g ∧ b ∈ g          (then ∧ causal)"},
+ {ph:"F",t:"Local statistics",lede:"The kernel returns three statistics per row rather than a normalised output: the running row max m, the sum of shifted exponentials l, and the weighted value sum acc. It never returns a normalised O.",
+  f:"m = max_j s_ij      l = Σ exp(s_ij − m)      acc = Σ exp(s_ij − m) · v_j"},
+ {ph:"F",t:"Merge, max-shifted",lede:"Merging re-bases both sides onto the larger row max. Every exponent is ≤ 0, so every intermediate lies in (0, 1]. exp(lse) is never formed — that is the whole numerical argument.",
+  f:"m' = max(m, mᵢ)\nacc ← acc·exp(m−m') + accᵢ·exp(mᵢ−m')\nl   ← l·exp(m−m')   + lᵢ·exp(mᵢ−m')"},
+ {ph:"F",t:"Finalise",lede:"Only at the very end are the accumulators turned into an output and a global log-sum-exp. Both are exact — compare against dense attention over the same admissible set.",
+  f:"O = acc / l          lse = m + log(l)"},
+ {ph:"B",t:"Row constant D",lede:"The backward opens by contracting the output gradient against the output itself, one scalar per query row. It needs O from the forward, nothing else.",
+  f:"D[q] = Σ_d  dO[q,d] · O[q,d]"},
+ {ph:"B",t:"Rebuild P from the global lse",lede:"Each subproblem rebuilds its attention weights from the GLOBAL log-sum-exp the forward already produced. Because lse is global, every P is bounded by 1 by construction — no subproblem can overflow, whatever its local scores were.",
+  f:"P[q,k] = exp( s[q,k] − lse_global[q] )   ≤ 1"},
+ {ph:"B",t:"dV, dP, dS",lede:"With P in hand the standard softmax backward applies unchanged on the retained pairs. dS is where near-uniform attention hurts: dP and D nearly cancel.",
+  f:"dV[k] += Σ_q P[q,k] · dO[q]\ndP[q,k] = dO[q] · V[k]\ndS[q,k] = P[q,k] · ( dP[q,k] − D[q] )"},
+ {ph:"B",t:"dQ, dK — and additivity",lede:"Each subproblem contributes to dQ and dK by summing over the pairs it owns. Since CQS partitions the pairs exactly once, the contributions simply add — no correction term, no double counting.",
+  f:"dQ[q] += scale · Σ_k dS[q,k] · K[k]\ndK[k] += scale · Σ_q dS[q,k] · Q[q]"}
+];
+
+/* ---------------- rendering ---------------- */
+let R=null;
+
+function mx(rows,cols,get,cls,rowLab,colLab){
+  const wrap=el("div","scroll"), t=el("table","mx");
+  const hr=el("tr"); hr.appendChild(el("th",null,""));
+  for(let j=0;j<cols;j++) hr.appendChild(el("th",null,colLab?colLab(j):String(j)));
+  t.appendChild(hr);
+  for(let i=0;i<rows;i++){ const tr=el("tr");
+    tr.appendChild(el("th",null,rowLab?rowLab(i):String(i)));
+    for(let j=0;j<cols;j++){ const td=el("td",cls?cls(i,j):null,get(i,j)); tr.appendChild(td); }
+    t.appendChild(tr); }
+  wrap.appendChild(t); return wrap;
+}
+function block(title,node){const b=el("div","blk");b.appendChild(el("h4",null,title));b.appendChild(node);return b;}
+function note(txt,kind){return el("div","note"+(kind?" "+kind:""),txt);}
+
+function renderStage(){
+  const st=STAGES[S.stage], body=$("#stBody");
+  $("#stTitle").textContent=st.t; $("#stLede").textContent=st.lede; $("#stFormula").textContent=st.f;
+  body.innerHTML="";
+  const sb=R.subs[Math.min(S.sub,R.subs.length-1)], N=S.N;
+
+  /* subproblem picker on every stage that is per-subproblem */
+  if(S.stage>=2 && S.stage<=6 || S.stage>=9){
+    const pick=el("div","subsel");
+    pick.appendChild(el("span",null,"subproblem:"));
+    R.subs.forEach((s,i)=>{ if(R.subs.length>14 && i>13) return;
+      const b=el("button",null,S.itr===0?"monolithic":s.path.join("·"));
+      b.type="button"; b.setAttribute("aria-pressed",String(i===S.sub));
+      b.onclick=()=>{S.sub=i;renderStage();drawGrid();};
+      pick.appendChild(b); });
+    if(R.subs.length>14) pick.appendChild(el("span",null,`… ${R.subs.length-14} more`));
+    body.appendChild(block("choose one of "+R.subs.length,pick));
+  }
+
+  if(S.stage===0){
+    body.appendChild(block("Q · Kᵀ scores, dense (fp64 here)",
+      mx(Math.min(N,12),Math.min(N,12),(i,j)=>fmt(R.scale*dot(R.Q[i],R.K[j]),2),
+        (i,j)=>(S.causal&&j>i)?"cau":"", i=>"q"+i, j=>"k"+j)));
+    body.appendChild(note(`${R.admissible} admissible pairs at N=${N}${S.causal?" (causal)":""}. `+
+      `Attention cost is quadratic in N — that is what forces the decomposition at long context.`));
+  }
+
+  if(S.stage===1){
+    const {sizes,starts,ends}=chunkLayout(N,S.c);
+    const strip=el("div","chunks");
+    for(let ch=0;ch<S.c;ch++){ const d=el("div","chunk");
+      d.appendChild(el("span","cid","chunk "+ch));
+      d.appendChild(el("span","tok",`${starts[ch]}…${ends[ch]-1}`));
+      d.appendChild(el("span","tok",sizes[ch]+" tok"));
+      strip.appendChild(d); }
+    body.appendChild(block(`N = ${N} split into c = ${S.c}`,strip));
+    body.appendChild(note(`${N} mod ${S.c} = ${N%S.c}, so the first ${N%S.c} chunk(s) carry one extra token.`));
+  }
+
+  if(S.stage===2){
+    const q=S.itr===0?null:sb.path[0];
+    const chunks=q===null?[]:quorumChunks(q,S.c,S.I);
+    const {starts,ends}=chunkLayout(N,S.c);
+    const strip=el("div","chunks");
+    for(let ch=0;ch<S.c;ch++){ const sel=chunks.includes(ch), own=ch===q;
+      const d=el("div","chunk"+(own?" own":sel?" sel":""));
+      d.appendChild(el("span","cid","chunk "+ch));
+      d.appendChild(el("span","tok",`${starts[ch]}…${ends[ch]-1}`));
+      d.appendChild(el("span","tok",own?"owner":sel?"in quorum":"—"));
+      strip.appendChild(d); }
+    body.appendChild(block(q===null?"itr = 0 — every chunk, no decomposition"
+      :`subproblem ${sb.path.join("·")} → chunks { ${chunks.join(", ")} }`,strip));
+    body.appendChild(note(q===null?"At itr = 0 there is one subproblem containing everything. The planner picks this when the whole call fits — not decomposing is both faster and more accurate."
+      :`Offsets ${S.I.join(", ")} added to ${q}, mod ${S.c}. Chunk ${q} is the owner: pairs inside it stay here, pairs inside the other quorum chunks are dropped at the next stage.`,q===null?"dev":null));
+  }
+
+  if(S.stage===3){
+    const chips=el("div","toks");
+    sb.tokenIds.forEach(t=>{ const owner=S.itr>0&&sb.trace.length?
+        (()=>{const {starts,ends}=chunkLayout(N,S.c);const q=sb.path[0];
+              return t>=starts[q]&&t<ends[q];})():false;
+      chips.appendChild(el("span","tk"+(owner?" own":" q"),String(t))); });
+    body.appendChild(block(`token_ids — ${sb.L} of ${N} tokens`,chips));
+    body.appendChild(note(`The subsequence is ${sb.L} tokens, ${(100*sb.L/N).toFixed(0)}% of the sequence. `+
+      `Each token appears in |I| = ${S.I.length} of the ${S.c} quorums, so tokens overlap — but pairs will not.`));
+  }
+
+  if(S.stage===4){
+    const L=Math.min(sb.L,14);
+    body.appendChild(block(`keep mask, local indices (showing ${L}×${L} of ${sb.L}×${sb.L})`,
+      mx(L,L,()=>"",(i,j)=>sb.eff[i][j]?"keep":(sb.keep[i][j]?"cau":"grp"),
+        i=>"t"+sb.tokenIds[i], j=>"t"+sb.tokenIds[j])));
+    const lg=el("div","legend");
+    lg.innerHTML='<span><i style="background:var(--devsoft);border-color:var(--devline)"></i>this subproblem computes it</span>'+
+      '<span><i style="background:var(--surface2)"></i>dropped — another subproblem owns it</span>'+
+      '<span><i style="background:transparent"></i>causally excluded</span>';
+    body.appendChild(lg);
+    body.appendChild(note(`${sb.groupRuns.length} masked group(s) from group_runs. `+
+      `A pair is dropped when both of its tokens came from the same non-owner chunk.`));
+  }
+
+  if(S.stage===5){
+    const L=Math.min(sb.L,14);
+    body.appendChild(block("local scores s (−inf where masked)",
+      mx(L,Math.min(sb.L,10),(i,j)=>fmt(sb.scores[i][j],2),
+        (i,j)=>sb.eff[i][j]?"keep":"cau", i=>"t"+sb.tokenIds[i], j=>"t"+sb.tokenIds[j])));
+    body.appendChild(block("the three statistics returned per row",
+      mx(L,3,(i,j)=>j===0?fmt(sb.m[i],3):j===1?fmt(sb.l[i],3):fmt(sb.acc[i][0],3),
+        ()=>"", i=>"t"+sb.tokenIds[i], j=>["m","l","acc[0]"][j])));
+    body.appendChild(note("A normalised output would already have lost the information needed to merge exactly. "+
+      "Returning (acc, l, m) is what lets subproblems complete in any order.","dev"));
+  }
+
+  if(S.stage===6){
+    const rows=Math.min(N,14);
+    body.appendChild(block("global accumulator after every merge",
+      mx(rows,3,(i,j)=>j===0?fmt(R.gm[i],3):j===1?fmt(R.gl[i],3):fmt(R.ga[i][0],3),
+        ()=>"", i=>"t"+i, j=>["m","l","acc[0]"][j])));
+    const dest=S.acc==="gpu"?"device":"host";
+    body.appendChild(note(`This accumulator lives on the ${dest}. `+
+      (S.acc==="gpu"
+       ?"Keeping it on the device is faster, but it is an O(N) device term that no depth of itr shrinks — it is what runs out of memory first at very long context."
+       :"Moving it to the host removes that O(N) device term entirely. Slower per subproblem, and the configuration that survives to the largest N."),
+      S.acc==="gpu"?"dev":"host"));
+    body.appendChild(note("Both exponents are ≤ 0 by construction, so nothing here can overflow — "+
+      "regardless of how large the scores or how long the sequence."));
+  }
+
+  if(S.stage===7){
+    const rows=Math.min(N,14);
+    body.appendChild(block("O = acc / l  ·  lse = m + log l",
+      mx(rows,D+1,(i,j)=>j<D?fmt(R.O[i][j],4):fmt(R.lse[i],3),
+        (i,j)=>j===D?"hi":"", i=>"t"+i, j=>j<D?"O["+j+"]":"lse")));
+    const exact=R.covered===R.admissible;
+    body.appendChild(note(exact
+      ? `Relative error against dense attention: ${R.relErr.toExponential(2)} — machine precision. The decomposition is exact.`
+      : `Relative error ${R.relErr.toExponential(2)} — NOT exact, because ${R.admissible-R.covered} pair(s) are covered by no subproblem. Try interest set 0,1,3 with c = 7.`,
+      exact?"dev":"warn"));
+    body.appendChild(note("exp(lse) is never computed. Reconstructing a denominator as exp(lse) overflows fp32 above 88.72, "+
+      "and the failure is silent — zeros or NaNs, no exception."));
+  }
+
+  if(S.stage===8){
+    const rows=Math.min(N,14);
+    body.appendChild(block("D[q] = \u03A3_d dO[q,d]\u00B7O[q,d]",
+      mx(rows,1,i=>fmt(R.Dv[i],4),()=>"hi",i=>"q"+i,()=>"D")));
+    body.appendChild(note("One scalar per row. It is subtracted from every dP in the same row at the dS stage, "+
+      "which is where catastrophic cancellation appears if attention is near-uniform."));
+  }
+
+  if(S.stage===9){
+    const L=Math.min(sb.L,12);
+    body.appendChild(block("P = exp(s − lse_global) — every entry ≤ 1",
+      mx(L,Math.min(sb.L,10),(i,j)=>sb.eff[i][j]?fmt(Math.exp(sb.scores[i][j]-R.lse[sb.tokenIds[i]]),3):"·",
+        (i,j)=>sb.eff[i][j]?"keep":"cau", i=>"q"+sb.tokenIds[i], j=>"k"+sb.tokenIds[j])));
+    body.appendChild(note(`Largest P anywhere in the problem: ${R.pMax.toFixed(4)} ≤ 1. `+
+      "Bounded by construction, not by assumption — this is the reason the decomposed backward is safe.","dev"));
+  }
+
+  if(S.stage===10){
+    const rows=Math.min(N,12);
+    body.appendChild(block("dV accumulated over every subproblem",
+      mx(rows,D,(i,j)=>fmt(R.dV[i][j],4),()=>"",i=>"k"+i,j=>"dV["+j+"]")));
+    body.appendChild(note("dV needs only P and dO. dS = P(dP − D) is the delicate one: when attention is close to "+
+      "uniform, dP and D agree to their leading digits and the subtraction loses them."));
+  }
+
+  if(S.stage===11){
+    const rows=Math.min(N,12);
+    body.appendChild(block("dQ",mx(rows,D,(i,j)=>fmt(R.dQ[i][j],4),()=>"",i=>"q"+i,j=>"dQ["+j+"]")));
+    body.appendChild(block("dK",mx(rows,D,(i,j)=>fmt(R.dK[i][j],4),()=>"",i=>"k"+i,j=>"dK["+j+"]")));
+    const exact=R.covered===R.admissible&&R.dup===0;
+    body.appendChild(note(exact
+      ? `Every admissible pair was visited exactly once across all ${R.subs.length} subproblem(s), so the gradient contributions add with no correction term.`
+      : `${R.dup} pair(s) are visited by more than one subproblem and ${R.admissible-R.covered} by none — the gradients would be wrong. This is what a bad interest set costs.`,
+      exact?"dev":"warn"));
+  }
+}
+
+/* ---------------- pair-coverage canvas ---------------- */
+function drawGrid(){
+  const cv=$("#grid"),ctx=cv.getContext("2d"),N=S.N;
+  const cs=getComputedStyle(document.documentElement);
+  const C=k=>cs.getPropertyValue(k).trim();
+  const px=Math.max(3,Math.floor(430/N)), size=px*N;
+  cv.width=size; cv.height=size;
+  ctx.fillStyle=C("--surface"); ctx.fillRect(0,0,size,size);
+  const cur=Math.min(S.sub,R.subs.length-1);
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){
+    if(S.causal&&j>i) continue;
+    const own=R.cover[i][j];
+    ctx.fillStyle = own===cur?C("--dev") : own>=0?C("--devsoft") : C("--warnsoft");
+    ctx.fillRect(j*px,i*px,px-(px>4?1:0),px-(px>4?1:0));
+    if(own<0){ ctx.strokeStyle=C("--warn"); ctx.lineWidth=1;
+      ctx.strokeRect(j*px+.5,i*px+.5,px-1,px-1); }
+  }
+  ctx.strokeStyle=C("--line2"); ctx.lineWidth=1; ctx.strokeRect(.5,.5,size-1,size-1);
+  const gap=R.admissible-R.covered;
+  $("#gridCap").textContent = `rows = queries, columns = keys. `+
+    (gap===0 ? `all ${R.covered} admissible pairs covered exactly once.`
+             : `${gap} pair(s) covered by nothing — outlined in red.`)+
+    (R.dup>0?` ${R.dup} covered more than once.`:"");
+}
+
+/* ---------------- residency panel ---------------- */
+function drawMem(){
+  const B=bytes(R), box=$("#mem"); box.innerHTML="";
+  const dev=el("div","membox d"); dev.appendChild(el("h5",null,"GPU — device memory"));
+  const row=(p,l,v)=>{const r=el("div","memrow");r.appendChild(el("span",null,l));
+    const b=el("b",null,v);r.appendChild(b);p.appendChild(r);};
+  row(dev,"in-flight subsequence",kb(B.inflight));
+  if(S.acc==="gpu") row(dev,"fp32 accumulator",kb(B.accum));
+  row(dev,"peak",kb(B.onDev));
+  box.appendChild(dev);
+  box.appendChild(el("div","bus",`↕ ${kb(B.traffic)} across PCIe, ${R.subs.length} transfer round(s)`));
+  const host=el("div","membox h"); host.appendChild(el("h5",null,"Host — system memory"));
+  row(host,"Q, K, V (streamed)",kb(B.inputs));
+  if(S.acc==="cpu") row(host,"fp32 accumulator",kb(B.accum));
+  row(host,"total",kb(B.host));
+  box.appendChild(host);
+  $("#memCap").textContent = S.acc==="gpu"
+    ? `Modelled at H=1, D=64 for N=${S.N}. The accumulator sits on the device: fastest, but O(N) device memory that deeper itr cannot shrink.`
+    : `Modelled at H=1, D=64 for N=${S.N}. With the accumulator on the host, device memory holds only one subsequence at a time — this is the configuration that reaches the largest N.`;
+}
+
+/* ---------------- strip ---------------- */
+function drawStrip(){
+  const s=$("#strip"); s.innerHTML="";
+  const gap=R.admissible-R.covered, exact=gap===0&&R.dup===0;
+  const B=bytes(R);
+  const add=(lab,val,cls)=>{const d=el("div","stat"+(cls?" "+cls:""));
+    d.appendChild(el("b",null,val));d.appendChild(el("span",null,lab));s.appendChild(d);};
+  add("subproblems",String(R.subs.length));
+  add("largest local size",String(B.maxL===0?0:Math.max(...R.subs.map(x=>x.L))));
+  add("pairs covered",`${R.covered}/${R.admissible}`,exact?"good":"bad");
+  add("partition",exact?"exact":(gap>0?`${gap} missing`:`${R.dup} double`),exact?"good":"bad");
+  add("fwd rel. error",R.relErr.toExponential(1),R.relErr<1e-9?"good":"bad");
+  add("max P (backward)",R.pMax.toFixed(3),R.pMax<=1.0000001?"good":"bad");
+  add("peak device",kb(B.onDev));
+}
+
+/* ---------------- steps rail ---------------- */
+function drawSteps(){
+  const f=$("#stepsF"), b=$("#stepsB"); f.innerHTML=""; b.innerHTML="";
+  STAGES.forEach((st,i)=>{
+    const btn=el("button","step"); btn.type="button";
+    btn.setAttribute("aria-current",String(i===S.stage));
+    btn.appendChild(el("span","n",String(i+1)));
+    btn.appendChild(el("span",null,st.t));
+    btn.onclick=()=>{S.stage=i;drawSteps();renderStage();drawGrid();};
+    (st.ph==="F"?f:b).appendChild(btn);
+  });
+  $("#prev").disabled=S.stage===0; $("#next").disabled=S.stage===STAGES.length-1;
+}
+
+/* ---------------- wiring ---------------- */
+function recompute(){
+  S.N=Math.max(S.c,Math.min(63,+$("#cN").value||21));
+  S.c=Math.max(3,Math.min(13,+$("#cC").value||7));
+  const parsed=$("#cI").value.split(/[,\s]+/).map(x=>parseInt(x,10))
+    .filter(x=>Number.isFinite(x)&&x>=0&&x<S.c);
+  S.I=parsed.length?Array.from(new Set(parsed)):[0];
+  S.itr=+$("#cItr").value;
+  if(S.itr===2 && S.c**2>90) S.itr=1, $("#cItr").value="1";
+  R=compute();
+  if(S.sub>=R.subs.length) S.sub=0;
+  drawStrip(); drawSteps(); renderStage(); drawGrid(); drawMem();
+}
+["#cN","#cC","#cI","#cItr"].forEach(id=>$(id).addEventListener("change",recompute));
+$("#cI").addEventListener("input",()=>{clearTimeout(window._t);window._t=setTimeout(recompute,350);});
+$("#cCausal").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  S.causal=b.dataset.v==="1";
+  [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed",String(x===b)));recompute();});
+$("#cAcc").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  S.acc=b.dataset.v;
+  [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
+  renderStage(); drawMem(); drawStrip();});
+$("#cTheme").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  document.documentElement.setAttribute("data-theme",b.dataset.v);
+  [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
+  drawGrid();});
+$("#prev").onclick=()=>{if(S.stage>0){S.stage--;drawSteps();renderStage();drawGrid();}};
+$("#next").onclick=()=>{if(S.stage<STAGES.length-1){S.stage++;drawSteps();renderStage();drawGrid();}};
+document.addEventListener("keydown",e=>{
+  if(e.target.matches("input,select"))return;
+  if(e.key==="ArrowRight")$("#next").click(); if(e.key==="ArrowLeft")$("#prev").click();});
+matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>drawGrid());
+recompute();
+</script>

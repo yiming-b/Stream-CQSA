@@ -192,6 +192,7 @@ csrc/                   CUDA extension
 
 tests/                  correctness suite (243 tests)
 examples/quickstart.py  smallest end-to-end example
+docs/demo/index.html    interactive step-by-step walkthrough (self-contained)
 notebooks/
   reference_kernels_demo.ipynb   how the decomposition works, from first principles
   tutorial_stream_cqsa.ipynb     production API, profiling, simulating a smaller card
@@ -462,6 +463,14 @@ value, and tracing the time/memory trade curve (as the tables above do).
 | `c`, `interest_set` | CQS parameters. Defaults `c=7`, `(0,1,3)` — a λ=1 Singer difference set. |
 
 ### Notebooks
+
+**Interactive walkthrough:** [`docs/demo/index.html`](docs/demo/index.html) steps through the
+whole algorithm — decomposition, quorum selection, gather, masking, the
+`(acc, l, m)` merge, and the backward pass — recomputing live as you change `c`,
+the interest set, `itr`, causality, and whether the fp32 accumulator sits on the
+device or the host. Open the file in a browser; it is self-contained. The mask
+code is a faithful port of `stream_cqsa.cqs_mask`, verified cell-for-cell
+against it.
 
 **New to the method?** [`notebooks/reference_kernels_demo.ipynb`](notebooks/reference_kernels_demo.ipynb)
 walks through the decomposition using the pure-PyTorch reference kernels in
