@@ -1,0 +1,60 @@
+{
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "gpu_gib": 79.3,
+  "capability": "8.0",
+  "torch": "2.10.0+cu130",
+  "python": "3.11.14",
+  "alloc_conf": "expandable_segments:True",
+  "slurm_job": "12335783",
+  "flash_attn": "2.8.3",
+  "cotenants": [],
+  "B": 1,
+  "H": 8,
+  "D": 64,
+  "causal": true,
+  "reps": 1,
+  "warmup": 0,
+  "acc_rows": 128,
+  "seeds": [
+    0
+  ],
+  "itr": "auto",
+  "n": [
+    8192,
+    16384,
+    32768,
+    65536,
+    131072,
+    262144,
+    524288,
+    1048576,
+    2097152,
+    4194304
+  ],
+  "n_per_direction": {
+    "fwd": null,
+    "bwd": null
+  },
+  "dtypes": [
+    "bf16"
+  ],
+  "input_scale": 1.0,
+  "itr_list": [
+    1,
+    2
+  ],
+  "directions": [
+    "fwd",
+    "bwd"
+  ],
+  "methods": [
+    "sdpa",
+    "sdpa_flash",
+    "sdpa_mem",
+    "flash",
+    "cqsa_auto",
+    "cqsa_host"
+  ],
+  "tag": "sweep_bf16_le4M",
+  "started": "2026-08-16 22:18:52"
+}
