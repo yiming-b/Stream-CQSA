@@ -9,7 +9,7 @@
 | shape | B=1 H=8 D=64, causal |
 | CQS parameters | c=7, interest set (0,1,3) |
 | inputs | zero-mean Gaussian, unit variance (`--input-scale 1.0`) |
-| E1 rows | 400 from `accuracy_20260813` |
+| E1 rows | 320 from `accuracy_20260813` |
 | E2/E3 rows | 360 from `sweep_bf16_le4M_20260816, sweep_big_20260817, sweep_fp16_le4M_20260816, rewarm_20260817` |
 
 Baselines are exact-attention implementations only: Stream-CQSA preserves the attention function, so an approximate method would not answer the same question. **Every accuracy number below is measured against a float64 reference**, not against SDPA — SDPA is one of the methods under test, not the yardstick.
@@ -20,7 +20,7 @@ Baselines are exact-attention implementations only: Stream-CQSA preserves the at
 
 Fixed N=8192, 10 seeds. Reference: forward = exact float64 over sampled query rows (256 rows); backward = **dense** float64 (affordable at this N, so dQ/dK/dV are checked against exact arithmetic rather than another approximation).
 
-Reference modes actually used: `{'fp64_sampled_rows': 200, 'fp64_dense': 200}`.
+Reference modes actually used: `{'fp64_sampled_rows': 160, 'fp64_dense': 160}`.
 
 ### Forward — relative error vs float64 (mean ± std over seeds)
 
@@ -30,7 +30,6 @@ Reference modes actually used: `{'fp64_sampled_rows': 200, 'fp64_dense': 200}`.
 | SDPA (flash) | 2.689e-04 ± 2e-06 | 2.168e-03 ± 3e-05 | 8.1× |
 | SDPA (mem-eff.) | 2.685e-04 ± 3e-06 | 2.159e-03 ± 4e-05 | 8.0× |
 | FlashAttention-2 | 2.689e-04 ± 2e-06 | 2.168e-03 ± 3e-05 | 8.1× |
-| Stream-CQSA acc=GPU itr=0 | 2.689e-04 ± 2e-06 | 2.168e-03 ± 3e-05 | 8.1× |
 | Stream-CQSA acc=GPU itr=1 | 1.705e-04 ± 4e-06 | 1.375e-03 ± 4e-05 | 8.1× |
 | Stream-CQSA acc=GPU itr=2 | 1.681e-04 ± 4e-06 | 1.356e-03 ± 4e-05 | 8.1× |
 
@@ -42,7 +41,6 @@ Reference modes actually used: `{'fp64_sampled_rows': 200, 'fp64_dense': 200}`.
 | SDPA (flash) | 3.075e-04 ± 1e-06 | 2.458e-03 ± 2e-05 | 8.0× |
 | SDPA (mem-eff.) | 3.739e-04 ± 1e-06 | 2.980e-03 ± 3e-05 | 8.0× |
 | FlashAttention-2 | 3.075e-04 ± 1e-06 | 2.458e-03 ± 2e-05 | 8.0× |
-| Stream-CQSA acc=GPU itr=0 | 3.075e-04 ± 1e-06 | 2.458e-03 ± 2e-05 | 8.0× |
 | Stream-CQSA acc=GPU itr=1 | 3.080e-04 ± 1e-06 | 2.462e-03 ± 2e-05 | 8.0× |
 | Stream-CQSA acc=GPU itr=2 | 3.085e-04 ± 1e-06 | 2.465e-03 ± 2e-05 | 8.0× |
 
@@ -54,7 +52,6 @@ Per-gradient breakdown (fp16, mean over seeds):
 | SDPA (flash) | 3.075e-04 | 3.029e-04 | 2.893e-04 |
 | SDPA (mem-eff.) | 3.739e-04 | 3.679e-04 | 2.900e-04 |
 | FlashAttention-2 | 3.075e-04 | 3.028e-04 | 2.893e-04 |
-| Stream-CQSA acc=GPU itr=0 | 3.075e-04 | 3.028e-04 | 2.893e-04 |
 | Stream-CQSA acc=GPU itr=1 | 3.080e-04 | 3.024e-04 | 2.891e-04 |
 | Stream-CQSA acc=GPU itr=2 | 3.085e-04 | 3.023e-04 | 2.884e-04 |
 

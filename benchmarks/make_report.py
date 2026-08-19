@@ -103,7 +103,7 @@ w()
 w(f"Reference modes actually used: `{dict(am)}`.")
 w()
 order=[m for m in ("sdpa","sdpa_flash","sdpa_mem","flash",
-                   "cqsa_host_itr0","cqsa_host_itr1","cqsa_host_itr2",
+                   "cqsa_host_itr1","cqsa_host_itr2",
                    "cqsa_accgpu_itr1","cqsa_accgpu_itrauto",
                    "cqsa_hostmin_itr1","cqsa_hostmin_itr2",
                    "cqsa_acccpu_itr1","cqsa_acccpu_itrauto")
