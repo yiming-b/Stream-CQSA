@@ -224,14 +224,32 @@ out = stream_cqsa_auto(q, k, v, causal=True)
 `stream_cqsa_auto` is the *"just run it"* path: it walks an escalation ladder
 cheapest-first and returns the first configuration that fits.
 
-| rung | `itr` | inputs | accumulator |
-|---|---|---|---|
-| 1–2 | 1, 2 | device | device |
-| 3–4 | 1, 2 | **host** | device |
-| 5–7 | 2, 3, 4 | **host** | **host** |
+It tries these seven configurations **in order**, top to bottom, and returns the
+first one that completes without running out of memory:
 
-Each rung relaxes exactly one constraint, so you pay only for the headroom you
-actually need.
+| # | `itr` (depth) | Q/K/V live on | fp32 accumulator lives on |
+|:--:|:--:|---|---|
+| 1 | 1 | device | device |
+| 2 | 2 | device | device |
+| 3 | 1 | **host** | device |
+| 4 | 2 | **host** | device |
+| 5 | 2 | **host** | **host** |
+| 6 | 3 | **host** | **host** |
+| 7 | 4 | **host** | **host** |
+
+Reading down the table, each step relaxes exactly one constraint and buys device
+memory at the cost of time:
+
+- **raising `itr`** splits the work into more, smaller subproblems (`c^itr`
+  of them, so 7 → 49 → 343), shrinking the in-flight working set;
+- **moving Q/K/V to the host** removes the largest O(N) device term, paging each
+  subsequence in on demand;
+- **moving the accumulator to the host** removes the *other* O(N) device term —
+  the one that no amount of decomposition can shrink.
+
+Because it stops at the first rung that works, you pay only for the headroom you
+actually need. `info["config"]` (or `return_info=True`) reports which rung was
+used.
 
 ### Let it choose the depth
 
@@ -302,6 +320,12 @@ profiling.
 reconstruct it: that is exactly what makes the decomposed backward exact, since
 it gives `P = exp(s − lse_global) ≤ 1` for every subproblem (see
 [Why it does not overflow](#why-it-does-not-overflow)).
+
+**New to the method?** [`notebooks/reference_kernels_demo.ipynb`](notebooks/reference_kernels_demo.ipynb)
+walks through the decomposition using the pure-PyTorch reference kernels in
+`stream_cqsa.backends.exact` — it shows the CQS mask partitioning the pair set,
+swaps inner kernels, and demonstrates the overflow that motivates the production
+design. Slow by construction, but every step is inspectable.
 
 Runnable versions: [`examples/quickstart.py`](examples/quickstart.py),
 [`notebooks/tutorial_stream_cqsa.ipynb`](notebooks/tutorial_stream_cqsa.ipynb)
