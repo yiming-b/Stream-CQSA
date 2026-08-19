@@ -12,12 +12,23 @@ for it.
 The practical consequence is a knob that trades wall-clock time for peak device
 memory, and keeps turning after the monolithic kernel has already failed.
 
+📄 **Paper:** [arXiv:2604.20819](https://doi.org/10.48550/arXiv.2604.20819) —
+*Stream-CQSA: Avoiding Out-of-Memory in Attention Computation via Flexible
+Workload Scheduling*
+
 ---
 
-## The result in one table
+## Results
 
-Causal attention, `B=1 H=8 D=64`, fp16, **backward pass**, NVIDIA A100 80GB.
-Peak is `torch.cuda.max_memory_allocated()`.
+Causal attention, `B=1 H=8 D=64`, fp16, NVIDIA A100 80GB. Each cell is
+**wall-clock / peak device memory**, where peak is
+`torch.cuda.max_memory_allocated()`.
+
+The two Stream-CQSA columns are *fixed* decomposition depths, shown so the
+trade curve is visible. In normal use you do not choose them — see
+[Let it choose the depth](#let-it-choose-the-depth).
+
+### Backward
 
 | N | SDPA | SDPA (mem-eff.) | FlashAttention-2 | Stream-CQSA `itr=1` | Stream-CQSA `itr=2` |
 |---|---|---|---|---|---|
@@ -26,19 +37,35 @@ Peak is `torch.cuda.max_memory_allocated()`.
 | **4M**  | 429 s / 48.3 GiB | 15 421 s / 44.3 GiB | 407 s / 40.3 GiB | 854 s / 30.5 GiB | 998 s / **17.7 GiB** |
 | **8M**  | **OOM** | **OOM** | **OOM** | 3 372 s / 61.1 GiB | 3 895 s / **35.5 GiB** |
 
-Two things to read off it:
+**This is where the method pays off.** At 8M every baseline is out of memory and
+Stream-CQSA finishes, on the same card with the same numerics. And it is not
+only a fallback: at 4M it does the backward in 17.7 GiB against
+FlashAttention-2's 40.3 GiB — **2.3× less peak memory** — because raising the
+depth shrinks the in-flight working set while the inputs stream from host
+memory. The price is **2.1–2.7×** the time.
 
-1. **At 8M every baseline is out of memory and Stream-CQSA finishes** — on the
-   same card, with the same numerics.
-2. **Even below the wall it is not just a fallback.** At 4M it does the
-   backward in 17.7 GiB against FlashAttention-2's 40.3 GiB — **2.3× less peak
-   memory** — because raising `itr` shrinks the in-flight working set while the
-   inputs stream from host memory.
+### Forward
 
-The price is time: **2.1–2.7× FlashAttention-2** in the backward and
-**1.5–2.0×** in the forward, depending on depth. This is a deliberate trade,
-and it is the honest summary of the method — see
-[What it costs](#what-it-costs).
+| N | SDPA | SDPA (mem-eff.) | FlashAttention-2 | Stream-CQSA `itr=1` | Stream-CQSA `itr=2` |
+|---|---|---|---|---|---|
+| **1M**  | 8 s / 5.0 GiB | 15 s / 5.0 GiB | 8 s / 5.0 GiB | 14 s / 6.5 GiB | 15 s / **4.2 GiB** |
+| **2M**  | 32 s / 10.1 GiB | 61 s / 10.0 GiB | 32 s / 10.1 GiB | 53 s / 13.0 GiB | 64 s / **8.3 GiB** |
+| **4M**  | 131 s / 20.1 GiB | 245 s / 20.0 GiB | 130 s / 20.1 GiB | 203 s / 25.9 GiB | 237 s / **16.7 GiB** |
+| **8M**  | 520 s / 40.3 GiB | 966 s / 40.0 GiB | 532 s / 40.3 GiB | 796 s / 51.8 GiB | 907 s / **33.3 GiB** |
+| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *not run* |
+
+**The forward story is more modest, and worth stating plainly.** In this
+configuration Stream-CQSA does *not* extend the forward's OOM boundary: every
+method here reaches 8M and fails at 16M. What it buys is headroom at a given N
+— 33.3 GiB against FlashAttention-2's 40.3 GiB at 8M (**0.83×**) — for
+**1.5–2.0×** the time. At `itr=1` it actually uses *more* memory than the
+baselines (1.29×), because the fp32 accumulator is an extra O(N) device term.
+
+The reason is structural: the forward's peak is dominated by the inputs and the
+accumulator, both O(N) on the device, and neither shrinks with depth. Moving the
+accumulator to the host (`accumulate_on_gpu=False`) removes that term and is
+what should carry the forward past 16M; those runs are still in the queue and
+the table will be updated when they land, rather than claimed now.
 
 ![memory and wall-clock across N](docs/figures/fig_mem_time_fp16.jpg)
 
@@ -52,10 +79,17 @@ are no prebuilt wheels, because the kernel set is large and building only your
 architecture keeps compile time and binary size sane.
 
 ```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu121  # your CUDA
 git clone https://github.com/yiming-b/Stream-CQSA.git
 cd Stream-CQSA
-pip install -e .
+pip install -e . --no-build-isolation
 ```
+
+**`--no-build-isolation` is not optional.** The extension compiles against the
+PyTorch you already have. With build isolation, pip downloads a *second* torch
+into a throwaway environment, builds the extension against that ABI, and the
+result fails to import against yours. This is the same constraint FlashAttention
+ships under, for the same reason.
 
 `setup.py` detects your architecture via `torch.cuda.get_device_capability()`
 and builds the fp16 + bf16 × head-dim 64/128 × causal/non-causal kernel set.
@@ -93,26 +127,68 @@ cheapest-first and returns the first configuration that fits.
 | 5–7 | 2, 3, 4 | **host** | **host** |
 
 Each rung relaxes exactly one constraint, so you pay only for the headroom you
-actually need. When a monolithic call fits, **call the monolithic kernel** —
-this entry point is deliberately not the fastest path.
+actually need.
 
-For explicit control, and to run the backward:
+### Let it choose the depth
+
+**Do not set `itr` yourself.** It defaults to `"auto"`, and automatic depth is
+the intended way to use this library — the whole point is that you should not
+have to know what a decomposition depth is to get a correct result.
+
+There are two levels of automatic, and they fail differently:
+
+| | how it decides | when it is right |
+|---|---|---|
+| `stream_cqsa_auto(...)` | **runs, catches the OOM, escalates, retries** | the robust default — use this |
+| `stream_cqsa_forward(..., itr="auto")` | plans once from free device memory | you want a single call with no retry |
+
+The difference matters. The planner reads *device-wide* free memory, so if
+something else on the card takes memory after it plans — or if you have capped
+your process with `set_per_process_memory_fraction` — its estimate can be
+optimistic. `stream_cqsa_auto` does not care, because it recovers from the
+actual failure rather than predicting it.
+
+Measured, N=262144 on a 40 GiB A100 with the same call each time, varying only
+the memory the process is allowed:
+
+| budget | what `stream_cqsa_auto` did | result |
+|---|---|---|
+| full card | `itr=1` | correct |
+| 1.98 GiB | escalated to `itr=2` | correct |
+| 1.58 GiB | escalated to `itr=2` + host-resident inputs | correct |
+| 1.19 GiB | exhausted the ladder | **clean error**, not a crash |
+
+When a monolithic call fits, `auto` detects that and does not decompose at all
+(`plan_reason: "monolithic fits ...: not decomposing is both faster and more
+accurate"`) — so it costs you nothing to leave it on.
+
+**Fixed `itr` is still supported**, and is the right choice for exactly three
+things: reproducing a published measurement, pinning peak memory to a known
+value, and tracing the time/memory trade curve (as the tables above do).
+
+### Explicit control, and the backward
 
 ```python
 from stream_cqsa import stream_cqsa_forward, stream_cqsa_backward
 
-out, info = stream_cqsa_forward(q, k, v, causal=True, itr=2,
+out, info = stream_cqsa_forward(q, k, v, causal=True,     # itr="auto" by default
                                 stream_from_host=True,    # Q/K/V live in host memory
                                 accumulate_on_gpu=False)  # fp32 accumulator on host too
 
-dq, dk, dv = stream_cqsa_backward(q, k, v, dout, out.cpu(), info["lse"],
-                                  itr=2, causal=True, stream_from_host=True)
+dq, dk, dv = stream_cqsa_backward(q, k, v, dout,
+                                  out.cpu(), info["lse"].cpu(),
+                                  itr=info["itr"],        # <- feed back what auto chose
+                                  causal=True, stream_from_host=True)
 ```
 
-> The `.cpu()` is currently required: `stream_from_host=True` needs every
-> operand host-resident, and the forward still returns `out` on the device even
-> when the accumulator is not. This is a known rough edge, not a deep one — the
-> backward raises a message telling you exactly this if you forget.
+`stream_cqsa_backward` takes an **`int`**, not `"auto"` — it must use the same
+depth the forward used, and `info["itr"]` is where you read it.
+
+> The two `.cpu()` calls are currently required: `stream_from_host=True` needs
+> every operand host-resident, and `out`/`lse` come back wherever the forward's
+> accumulator happened to live — which varies with the depth `auto` picked. This
+> is a known rough edge, not a deep one; the backward raises a message naming
+> the offending tensor if you forget.
 
 `out` comes back **fp32**, and `info` carries the plan the scheduler actually
 chose (`itr`, `n_subproblems`, `n_parallel`, `stage_totals_ms`, …) — useful for
@@ -133,7 +209,7 @@ Runnable versions: [`examples/quickstart.py`](examples/quickstart.py),
 
 | argument | effect |
 |---|---|
-| `itr` | decomposition depth. Higher = smaller subproblems = less peak memory, more time. `"auto"` (default) picks from free memory. |
+| `itr` | decomposition depth. Higher = smaller subproblems = less peak memory, more time. **Leave it at the `"auto"` default**; set an int only to pin a specific point (see above). |
 | `stream_from_host` | keep Q/K/V in host memory, page each subsequence in on demand. Removes the largest O(N) *device* term. |
 | `accumulate_on_gpu` | `False` moves the fp32 accumulator to the host. Slower per subproblem, but removes an O(N) device term that **no depth of `itr` can shrink**. |
 | `c`, `interest_set` | CQS parameters. Defaults `c=7`, `(0,1,3)` — a λ=1 Singer difference set. |
@@ -283,8 +359,25 @@ docs/                 METHODOLOGY.md (implementation), RESULTS.md (generated)
 
 ## Citation
 
-Paper in preparation. Please open an issue if you would like to cite this before
-it appears.
+> Yiming Bian and Joshua M. Akey. *Stream-CQSA: Avoiding Out-of-Memory in
+> Attention Computation via Flexible Workload Scheduling.* arXiv:2604.20819, 2026.
+> <https://doi.org/10.48550/arXiv.2604.20819>
+
+```bibtex
+@article{bian2026streamcqsa,
+  title   = {Stream-CQSA: Avoiding Out-of-Memory in Attention Computation
+             via Flexible Workload Scheduling},
+  author  = {Bian, Yiming and Akey, Joshua M.},
+  journal = {arXiv preprint arXiv:2604.20819},
+  year    = {2026},
+  doi     = {10.48550/arXiv.2604.20819},
+  url     = {https://doi.org/10.48550/arXiv.2604.20819}
+}
+```
+
+The arXiv entry is versioned and the DOI above always resolves to the latest
+version. This repository tracks the revision in preparation, so some numbers
+here are newer than those in v1.
 
 ## License
 

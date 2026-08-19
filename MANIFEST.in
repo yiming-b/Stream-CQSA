@@ -1,12 +1,21 @@
+# --- CUDA/C++ sources needed to build the extension from an sdist ---
 recursive-include csrc *.cu
-recursive-include csrc *.h
 recursive-include csrc *.cuh
 recursive-include csrc *.cpp
+recursive-include csrc *.h
 recursive-include csrc *.hpp
+recursive-include csrc *.inl
 recursive-include csrc *.py
 
 recursive-include stream_cqsa *.py
 
-# Do not ship runtime-generated artifacts.
+# --- metadata read by setup.py / required by the license ---
+include README.md
+include LICENSE
+recursive-include third_party *.txt
+
+# --- never ship runtime-generated artifacts ---
 exclude probing_history.csv
 prune Probing_history
+prune build
+global-exclude *.so *.pyc __pycache__/*
