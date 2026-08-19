@@ -49,7 +49,8 @@ h1,h2,h3{text-wrap:balance;margin:0}
 .mast{padding-bottom:20px;border-bottom:1px solid var(--line)}
 .mast h1{font-size:31px;font-weight:600;letter-spacing:-.02em}
 .mast h1 span{color:var(--dev)}
-.tag{font-size:16px;color:var(--ink2);max-width:74ch;margin-top:9px}
+.tag{font-size:15px;color:var(--ink2);margin-top:9px;white-space:normal}
+@media(min-width:1500px){.tag{white-space:nowrap}}
 .tag code{font-family:var(--mono);font-size:14px;background:var(--surface2);padding:1px 5px;border-radius:var(--r)}
 
 /* ---------- controls ---------- */
@@ -181,7 +182,8 @@ canvas{display:block;max-width:100%;height:auto;border:1px solid var(--line2);bo
       font-size:14px;color:var(--ink3);display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between}
 .foot a{color:var(--dev)}
 .foot code{font-family:var(--mono);font-size:13px}
-.subsel{display:flex;gap:5px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:13px;color:var(--ink3)}
+.subsel{display:flex;gap:5px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:13px;
+  color:var(--ink3);max-height:188px;overflow-y:auto;padding:2px}
 .subsel button{font-family:var(--mono);font-size:13px;background:var(--bg);border:1px solid var(--line2);
   color:var(--ink2);border-radius:var(--r);padding:5px 10px;cursor:pointer;display:flex;align-items:center;gap:6px}
 .subsel button .sw{width:11px;height:11px;border-radius:2px;border:1px solid rgba(128,128,128,.4)}
@@ -240,9 +242,9 @@ canvas{display:block;max-width:100%;height:auto;border:1px solid var(--line2);bo
       <div class="pad">
         <canvas id="grid" width="640" height="640" aria-label="Query by key pair grid, coloured by which subproblem owns each pair"></canvas>
         <div class="legend" style="margin-top:12px">
-          <span><i id="lgSel"></i>selected subproblem</span>
-          <span><i style="background:var(--surface2)"></i>other subproblems, one hue each</span>
-          <span><i style="background:var(--warnsoft);border-color:var(--warn)"></i>uncovered</span>
+          <span><i id="lgSel"></i><span id="lgSelTxt">selected subproblem</span></span>
+          <span><i id="lgMid" style="background:var(--surface2)"></i><span id="lgMidTxt">other subproblems, one hue each</span></span>
+          <span id="lgDup" style="display:none"><i style="background:var(--owner)"></i>covered twice</span>
         </div>
         <p class="cap" id="gridCap"></p>
       </div>
@@ -433,7 +435,8 @@ function compute(){
   for(let i=0;i<N;i++)for(let j=0;j<N;j++){ if(S.causal&&j>i)continue; admissible++;
     if(seen[i][j]>0)covered++; if(seen[i][j]>1)dup++; }
 
-  return{Q,K,V,dO,scale,subs,gm,gl,ga,O,lse,relErr,Dv,dQ,dK,dV,pMax,cover,
+  const dupAt=seen.map(r=>Array.from(r,x=>x>1));
+  return{Q,K,V,dO,scale,subs,gm,gl,ga,O,lse,relErr,Dv,dQ,dK,dV,pMax,cover,dupAt,
          admissible,covered,dup,paths};
 }
 
@@ -505,25 +508,27 @@ function mx(rows,cols,get,cls,rowLab,colLab){
 function block(title,node){const b=el("div","blk");b.appendChild(el("h4",null,title));b.appendChild(node);return b;}
 function note(txt,kind){return el("div","note"+(kind?" "+kind:""),txt);}
 
+/* Stages 3-7 and 10-12 walk one subproblem; the rest describe the whole
+   problem, and there the grid shows every subproblem at full strength. */
+const stageHasSelection=st=>((st>=2&&st<=6)||st>=9);
+
 function renderStage(){
   const st=STAGES[S.stage], body=$("#stBody");
   $("#stTitle").textContent=st.t; $("#stLede").textContent=st.lede; $("#stFormula").textContent=st.f;
   body.innerHTML="";
   const sb=R.subs[Math.min(S.sub,R.subs.length-1)], N=S.N, n=R.subs.length;
 
-  if((S.stage>=2&&S.stage<=6)||S.stage>=9){
+  if(stageHasSelection(S.stage)){
     const pick=el("div","subsel");
     pick.appendChild(el("span",null,`subproblem (${n} total):`));
-    const LIM=24;
-    R.subs.forEach((s,i)=>{ if(i>=LIM)return;
+    R.subs.forEach((s,i)=>{
       const b=el("button"); b.type="button";
       const sw=el("span","sw"); sw.style.background=subColor(i,n,i===S.sub); b.appendChild(sw);
       b.appendChild(el("span",null,S.itr===0?"monolithic":s.path.join("·")));
       b.setAttribute("aria-pressed",String(i===S.sub));
       b.onclick=()=>{S.sub=i;renderStage();drawGrid();};
       pick.appendChild(b); });
-    if(n>LIM) pick.appendChild(el("span",null,`… ${n-LIM} more`));
-    body.appendChild(block("pick one",pick));
+    body.appendChild(block("pick one — every quorum is listed",pick));
   }
 
   if(S.stage===0){
@@ -544,6 +549,10 @@ function renderStage(){
       d.appendChild(el("span","tok",sizes[ch]+" tok"));
       strip.appendChild(d); }
     body.appendChild(block(`N = ${N} split into c = ${S.c}`,strip));
+    body.appendChild(note(`N changes only how many tokens land in each chunk — never which chunk is which. `+
+      `Chunk ch is always the ch-th contiguous block, so the structure of the decomposition `+
+      `(which chunks form each quorum, and therefore which pairs go to which subproblem) is fixed by `+
+      `c and the interest set alone and does not depend on N.`,"dev"));
     body.appendChild(note(`${N} mod ${S.c} = ${N%S.c}, so the first ${N%S.c} chunk(s) carry one extra token.`+
       (Math.floor(N/S.c)<1?`  N is smaller than c, so some chunks are empty — raise N to at least ${S.c*2}.`:"" ),
       Math.floor(N/S.c)<1?"warn":null));
@@ -678,25 +687,42 @@ function drawGrid(){
   cv.width=size; cv.height=size;
   ctx.fillStyle=C("--surface"); ctx.fillRect(0,0,size,size);
   const cur=Math.min(S.sub,n-1);
+  const selecting=stageHasSelection(S.stage);
+  const gap=R.admissible-R.covered, broken=gap>0||R.dup>0;
   const cache=new Map();
   const col=(si,sel)=>{const k=si+"|"+sel; if(!cache.has(k))cache.set(k,subColor(si,n,sel)); return cache.get(k);};
-  /* every subproblem keeps its own hue at all times, so the full partition is
-     always visible; the selected one is the same hue at full strength. */
+  /* Three modes, because the map answers a different question in each:
+     - coverage is broken -> the question is WHICH pairs are missing, so the
+       covered ones go flat grey and the holes are solid red;
+     - a subproblem is selected -> its hue at full strength, the others muted;
+     - no selection (whole-problem stages) -> every subproblem at full strength. */
   for(let i=0;i<N;i++)for(let j=0;j<N;j++){
     if(S.causal&&j>i) continue;
     const own=R.cover[i][j];
-    if(own<0){ ctx.fillStyle=C("--warnsoft"); ctx.fillRect(j*px,i*px,px,px);
-      ctx.strokeStyle=C("--warn"); ctx.lineWidth=1; ctx.strokeRect(j*px+.5,i*px+.5,px-1,px-1); continue; }
-    ctx.fillStyle=col(own,own===cur);
+    if(own<0){                                        // uncovered: unmissable
+      ctx.fillStyle=C("--warn"); ctx.fillRect(j*px,i*px,px,px); continue; }
+    if(broken){                                       // covered, but the map is about the holes
+      ctx.fillStyle = R.dupAt[i][j] ? C("--owner") : C("--line");
+    } else {
+      ctx.fillStyle = col(own, selecting ? own===cur : true);
+    }
     ctx.fillRect(j*px,i*px,px-(px>5?1:0),px-(px>5?1:0));
   }
   ctx.strokeStyle=C("--line2"); ctx.lineWidth=1; ctx.strokeRect(.5,.5,size-1,size-1);
-  $("#lgSel").style.background=subColor(cur,n,true);
-  const gap=R.admissible-R.covered;
-  $("#gridCap").textContent=`Rows = queries, columns = keys; one hue per subproblem, `+
-    `${n} in total. `+(gap===0&&R.dup===0
-      ? `All ${R.covered} admissible pairs are covered exactly once — the decomposition is a partition.`
-      : `${gap} pair(s) covered by nothing (outlined red)${R.dup?`, ${R.dup} covered more than once`:""}.`);
+  $("#lgSel").style.background = broken ? C("--warn") : subColor(cur,n,selecting);
+  $("#lgSelTxt").textContent = broken ? "missing — covered by no subproblem"
+                             : selecting ? "selected subproblem" : "every subproblem (none selected)";
+  $("#lgMid").style.background = broken ? C("--line") : C("--surface2");
+  $("#lgMidTxt").textContent = broken ? "covered (greyed, so the holes read)"
+                             : selecting ? "other subproblems, one hue each" : "one hue per subproblem";
+  $("#lgDup").style.display = broken&&R.dup ? "" : "none";
+  $("#gridCap").textContent = broken
+    ? `${gap} of ${R.admissible} admissible pairs are covered by NO subproblem — solid red above`
+      + (R.dup?`, and ${R.dup} are covered more than once — in purple`:"")
+      + `. Those pairs are simply absent from the result, which is why the forward error is ${R.relErr.toExponential(2)}.`
+    : `Rows = queries, columns = keys; one hue per subproblem, ${n} in total. `
+      + `All ${R.covered} admissible pairs are covered exactly once — the decomposition is a partition.`
+      + (selecting?"":" No subproblem selected, so every one is shown at full strength.");
 }
 
 /* ---------------- residency ---------------- */
@@ -775,7 +801,7 @@ function buildCSelect(){
   const sel=$("#cC");
   PRESETS.forEach(p=>{
     const o=document.createElement("option");
-    o.value=String(p.c); o.textContent=`${p.c}  (order ${p.q}, |I| = ${p.I.length})`;
+    o.value=String(p.c); o.textContent=`${p.c}   (|I| = ${p.I.length})`;
     sel.appendChild(o);
   });
   const o=document.createElement("option"); o.value="custom"; o.textContent="custom…"; sel.appendChild(o);
