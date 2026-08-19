@@ -176,21 +176,48 @@ def attention_oom_safe(
 # The no-brainer entry point
 # ---------------------------------------------------------------------------
 
-# Ordered cheapest-first. Each rung relaxes ONE thing, and the order matters:
-# deeper `itr` is tried before relocating anything, because moving a term to the
-# host costs bus traffic on every subproblem that touches it.
+# Why the default ladder is ordered the way it is.
 #
-# The crucial point is that `itr` alone is NOT sufficient. Device memory is three
-# terms and deeper decomposition only shrinks one of them:
+# Device memory is three terms, and deeper decomposition only shrinks one:
 #
 #     inputs Q/K/V        O(N)  -- invariant in itr; needs stream_from_host
 #     fp32 accumulator    O(N)  -- invariant in itr; needs accumulate_on_gpu=False
 #     in-flight pieces    O(N/l^itr) -- this is the only one itr touches
 #
 # So a ladder that only deepens `itr` stalls at a floor of (inputs + accumulator)
-# and OOMs forever after. That floor is why the "streamed" configuration still
-# fails under a tight cap while "min-device" does not.
+# and OOMs forever after, no matter how deep it goes. Any ladder that means to
+# "keep trying until it fits" must therefore reach the fully-relocated
+# configuration -- and since it must reach it anyway, the default starts there.
+# The DEFAULT ladder starts from the safest configuration rather than the
+# cheapest, because "auto" should mean "this returns an answer", not "this is
+# fast if you are lucky". Rung 1 already has both O(N) device terms removed --
+# inputs streamed from the host, fp32 accumulator host-resident -- so the only
+# thing left to escalate is depth.
+#
+# Starting safe is not a speed sacrifice, which is the non-obvious part.
+# `itr="auto"` asks the planner for a depth, and when a monolithic call fits the
+# planner returns itr=0 and does not decompose at all -- "not decomposing is both
+# faster and more accurate". The old cheapest-first ladder opened with a fixed
+# `itr=1`, forcing a decomposition nobody needed. Measured on an A100-40GB,
+# forward, fp16, B=1 H=8 D=64:
+#
+#     N=262144   old rung 1: 3.52 s / 2.37 GiB    default: 0.74 s / 1.51 GiB
+#     N=1048576  old rung 1: 13.31 s / 9.48 GiB   default: 9.95 s / 6.03 GiB
+#
+# i.e. the safe default is 1.3-4.8x FASTER and uses 0.64x the peak memory.
 ESCALATION = [
+    dict(itr="auto", stream_from_host=True, accumulate_on_gpu=False),
+    dict(itr=2, stream_from_host=True, accumulate_on_gpu=False),
+    dict(itr=3, stream_from_host=True, accumulate_on_gpu=False),
+    dict(itr=4, stream_from_host=True, accumulate_on_gpu=False),
+]
+
+# Cheapest-first: keep everything device-resident as long as possible, and only
+# relocate after an OOM. Lower per-subproblem overhead once a decomposition is
+# genuinely needed, because nothing crosses the bus, but it OOMs far earlier --
+# the (inputs + accumulator) floor is O(N) and no depth of `itr` shrinks it.
+# Pass explicitly: `stream_cqsa_auto(..., ladder=ESCALATION_FAST)`.
+ESCALATION_FAST = [
     dict(itr=1),
     dict(itr=2),
     dict(itr=1, stream_from_host=True),
@@ -204,19 +231,34 @@ ESCALATION = [
 def stream_cqsa_auto(q, k, v, *, causal=False, scale=None, return_info=False,
                      ladder=None, verbose=False):
     """
-    Exact attention that keeps trying until it fits.
+    Exact attention that returns an answer, whatever N you give it.
 
-    Walks `ESCALATION` cheapest-first, relaxing one constraint per rung, and
-    returns the first configuration that completes. Inputs may start on either
-    device; rungs that need host residency relocate them (rebinding `.data`, so
-    the device allocation is actually released rather than merely copied).
+    Walks `ESCALATION`, which starts from the SAFEST configuration -- inputs
+    streamed from host memory, fp32 accumulator host-resident, depth chosen
+    automatically -- and deepens the decomposition if even that OOMs. The first
+    rung that completes wins.
 
-    This is the "just run it" entry point. It is deliberately not the fastest
-    path -- when a monolithic call fits, call the monolithic kernel.
+    Depth is automatic, so this does not decompose when it does not have to:
+    if a monolithic call fits, the planner says so and the call is monolithic.
 
-    Returns the output in the inputs' original dtype, on their original device
-    (or `(out, info)` with `return_info=True`; `info["lse"]` is required by
-    `stream_cqsa_backward`).
+    .. warning::
+       **This relocates q/k/v to host memory in place.** Streaming from the host
+       is what removes the largest O(N) device term, and the relocation rebinds
+       ``.data`` so the device allocation is genuinely released rather than
+       merely copied. The tensors you passed in will therefore be CPU-resident
+       when the call returns. Pass ``.clone()`` if you need to keep them on the
+       device, or use `stream_cqsa_forward` directly for explicit control.
+
+    Parameters
+    ----------
+    ladder : list[dict], optional
+        Override the escalation sequence. `ESCALATION_FAST` keeps everything
+        device-resident as long as possible; it is lower-overhead once a
+        decomposition is genuinely needed, but OOMs far earlier.
+
+    Returns the output in the inputs' original dtype (or `(out, info)` with
+    `return_info=True`; `info["lse"]` is required by `stream_cqsa_backward`,
+    and `info["config"]` reports which rung ran).
     """
     from .stable_stream import stream_cqsa_forward
 

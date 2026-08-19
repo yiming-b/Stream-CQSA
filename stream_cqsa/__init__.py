@@ -5,7 +5,8 @@ from .stable_stream import (
     stream_cqsa_backward,
     TraceRecorder,
 )
-from .oom_fallback import stream_cqsa_auto, attention_oom_safe, ESCALATION
+from .oom_fallback import (stream_cqsa_auto, attention_oom_safe,
+                           ESCALATION, ESCALATION_FAST)
 
 from .interface import (
     flash_attn_func,
@@ -43,6 +44,7 @@ __all__ = [
     "stream_cqsa_backward",    # explicit backward, needs the global lse
     "attention_oom_safe",
     "ESCALATION",
+    "ESCALATION_FAST",
     "TraceRecorder",
     # --- everything else --------------------------------------------------
     "flash_attn_func",

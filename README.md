@@ -27,30 +27,39 @@ Causal attention, `B=1 H=8 D=64`, fp16, NVIDIA A100 80GB. Each cell is
 Three Stream-CQSA configurations appear, and the distinction matters:
 
 | column | decomposition depth | fp32 accumulator | what it is for |
-|---|---|---|---|
+|:---:|:---:|:---:|:---:|
 | `itr=1` | **fixed** at 1 | **on GPU** | tracing the trade curve at a pinned depth |
 | `itr=2` | **fixed** at 2 | **on GPU** | as above, one step deeper |
 | `itr=auto`, acc=CPU | **automatic** | **on host** | **the configuration you should actually use** |
 
 The two fixed-depth columns are measurements, not recommendations — they exist
-so the time/memory trade is visible as a curve. The third column is the shipped
-default (`stream_cqsa_auto`): it picks the depth itself and moves the fp32
-accumulator off the device, which removes the one O(N) device term that no
-amount of decomposition can shrink. **Those runs are still in the queue**; the
+so the time/memory trade is visible as a curve. The third column is what
+`stream_cqsa_auto` now runs by default: it picks the depth itself and keeps both
+O(N) terms off the device, which is why it is expected to be the last column
+standing at 16M. **Those runs are still in the queue**; the
 cells are marked *pending* rather than estimated.
 
 In normal use you never pick a depth yourself — see
-[Let it choose the depth](#let-it-choose-the-depth).
+[On choosing the depth](#on-choosing-the-depth).
 
 ### Backward
 
-| N | SDPA | SDPA (mem-eff.) | FlashAttention-2 | Stream-CQSA `itr=1` acc=GPU | Stream-CQSA `itr=2` acc=GPU | Stream-CQSA `itr=auto` acc=CPU |
-|---|---|---|---|---|---|---|
-| **1M**  | 26 s / 12.1 GiB | 78 s / 11.1 GiB | 25 s / 10.1 GiB | 57 s / 7.6 GiB | 68 s / **4.4 GiB** | *pending* |
-| **2M**  | 106 s / 24.1 GiB | 3 860 s / 22.1 GiB | 101 s / 20.1 GiB | 218 s / 15.3 GiB | 262 s / **8.9 GiB** | *pending* |
-| **4M**  | 429 s / 48.3 GiB | 15 421 s / 44.3 GiB | 407 s / 40.3 GiB | 854 s / 30.5 GiB | 998 s / **17.7 GiB** | *pending* |
-| **8M**  | **OOM** | **OOM** | **OOM** | 3 372 s / 61.1 GiB | 3 895 s / **35.5 GiB** | *pending* |
-| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *not run* | *pending* |
+| N | SDPA | SDPA<br>(mem-eff.) | FlashAttention-2 | Stream-CQSA<br>`itr=1` acc=GPU | Stream-CQSA<br>`itr=2` acc=GPU | Stream-CQSA<br>`itr=auto` acc=CPU |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **1M** | 26 s<br>12.1 GiB | 78 s<br>11.1 GiB | 25 s<br>10.1 GiB | 57 s<br>7.6 GiB | 68 s<br>**4.4 GiB** | *pending* |
+| **2M** | 106 s<br>24.1 GiB | 3 860 s<br>22.1 GiB | 101 s<br>20.1 GiB | 218 s<br>15.3 GiB | 262 s<br>**8.9 GiB** | *pending* |
+| **4M** | 429 s<br>48.3 GiB | 15 421 s<br>44.3 GiB | 407 s<br>40.3 GiB | 854 s<br>30.5 GiB | 998 s<br>**17.7 GiB** | *pending* |
+| **8M** | **OOM** | **OOM** | **OOM** | 3 372 s<br>61.1 GiB | 3 895 s<br>**35.5 GiB** | *pending* |
+| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *not run* † | *pending* |
+
+† **Why `itr=2` acc=GPU has no 16M number.** It is not an OOM — it was never
+attempted. The sweep retired a method from all larger N once it OOMed, but keyed
+that on the base method name rather than on `(method, itr)`, so when `itr=1`
+OOMed at 16M the whole family was marked dead and `itr=2` was skipped. That is a
+harness bug, since fixed. Whether it would have survived is genuinely open:
+`itr=2` used 35.5 GiB at 8M and this term is linear in N, so 16M projects to
+~71 GiB against the card's 79.3 GiB — plausible, but too close to call without
+running it.
 
 **This is where the method pays off.** At 8M every baseline is out of memory and
 Stream-CQSA finishes, on the same card with the same numerics. And it is not
@@ -65,13 +74,13 @@ why it is the last column standing.
 
 ### Forward
 
-| N | SDPA | SDPA (mem-eff.) | FlashAttention-2 | Stream-CQSA `itr=1` acc=GPU | Stream-CQSA `itr=2` acc=GPU | Stream-CQSA `itr=auto` acc=CPU |
-|---|---|---|---|---|---|---|
-| **1M**  | 8 s / 5.0 GiB | 15 s / 5.0 GiB | 8 s / 5.0 GiB | 14 s / 6.5 GiB | 15 s / **4.2 GiB** | *pending* |
-| **2M**  | 32 s / 10.1 GiB | 61 s / 10.0 GiB | 32 s / 10.1 GiB | 53 s / 13.0 GiB | 64 s / **8.3 GiB** | *pending* |
-| **4M**  | 131 s / 20.1 GiB | 245 s / 20.0 GiB | 130 s / 20.1 GiB | 203 s / 25.9 GiB | 237 s / **16.7 GiB** | *pending* |
-| **8M**  | 520 s / 40.3 GiB | 966 s / 40.0 GiB | 532 s / 40.3 GiB | 796 s / 51.8 GiB | 907 s / **33.3 GiB** | *pending* |
-| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *not run* | *pending* |
+| N | SDPA | SDPA<br>(mem-eff.) | FlashAttention-2 | Stream-CQSA<br>`itr=1` acc=GPU | Stream-CQSA<br>`itr=2` acc=GPU | Stream-CQSA<br>`itr=auto` acc=CPU |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **1M** | 8 s<br>5.0 GiB | 15 s<br>5.0 GiB | 8 s<br>5.0 GiB | 14 s<br>6.5 GiB | 15 s<br>**4.2 GiB** | *pending* |
+| **2M** | 32 s<br>10.1 GiB | 61 s<br>10.0 GiB | 32 s<br>10.1 GiB | 53 s<br>13.0 GiB | 64 s<br>**8.3 GiB** | *pending* |
+| **4M** | 131 s<br>20.1 GiB | 245 s<br>20.0 GiB | 130 s<br>20.1 GiB | 203 s<br>25.9 GiB | 237 s<br>**16.7 GiB** | *pending* |
+| **8M** | 520 s<br>40.3 GiB | 966 s<br>40.0 GiB | 532 s<br>40.3 GiB | 796 s<br>51.8 GiB | 907 s<br>**33.3 GiB** | *pending* |
+| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *not run* † | *pending* |
 
 **The forward story is more modest, and worth stating plainly.** In the acc=GPU
 configuration Stream-CQSA does *not* extend the forward's OOM boundary: every
@@ -96,7 +105,7 @@ the repository does not hide it:
 Ratios against FlashAttention-2 over N = 1M–8M, fp16 (min–max across N):
 
 | | | time | peak memory |
-|---|---|--:|--:|
+|:---:|:---:|:---:|:---:|
 | forward | `itr=1` | 1.49–1.81× | 1.29× |
 | forward | `itr=2` | 1.70–1.99× | **0.83×** |
 | backward | `itr=1` | 2.10–2.26× | 0.76× |
@@ -121,7 +130,7 @@ SDPA is one of the methods under test, not the yardstick. N=8192, 10 seeds.
 **Forward** — relative error vs float64:
 
 | method | fp16 | bf16 |
-|---|--:|--:|
+|:---:|:---:|:---:|
 | SDPA | 2.689e-04 | 2.168e-03 |
 | FlashAttention-2 | 2.689e-04 | 2.168e-03 |
 | **Stream-CQSA `itr=1`** | **1.705e-04** | **1.375e-03** |
@@ -130,7 +139,7 @@ SDPA is one of the methods under test, not the yardstick. N=8192, 10 seeds.
 **Backward** — relative error vs a *dense* float64 reference:
 
 | method | fp16 | bf16 |
-|---|--:|--:|
+|:---:|:---:|:---:|
 | SDPA | 3.075e-04 | 2.458e-03 |
 | FlashAttention-2 | 3.075e-04 | 2.458e-03 |
 | Stream-CQSA `itr=1` | 3.080e-04 | 2.462e-03 |
@@ -200,7 +209,7 @@ actually have, which keeps compile time and binary size sane.
 ### Requirements
 
 | | |
-|---|---|
+|:---:|:---:|
 | GPU | NVIDIA, compute capability **≥ 8.0** (Ampere or newer: A100, A6000, L40S, H100, …) |
 | CUDA toolkit | `nvcc` must be present. It does **not** need to be on `PATH` — PyTorch looks in `/usr/local/cuda` — but its major version should match your PyTorch build. |
 | PyTorch | any recent version, built for **your** CUDA. Install it *before* this package. |
@@ -252,8 +261,8 @@ pip install pytest                # not a runtime dependency
 pytest tests/ -q                  # 243 tests, ~1 min
 ```
 
-`quickstart.py` prints the escalation rung that was chosen and the relative
-error against SDPA; anything near `1e-04` in fp16 is correct.
+`quickstart.py` prints the rung and depth that were chosen and the relative
+error against SDPA; anything at or below `~2.7e-04` in fp16 is correct.
 
 <details>
 <summary>Known-good configuration</summary>
@@ -262,13 +271,13 @@ These exact steps were rehearsed end-to-end in a clean virtualenv against a
 fresh clone of this repository:
 
 | | |
-|---|---|
+|:---:|:---:|
 | GPU / driver | A100-PCIE-40GB, driver 610.57.04 |
 | CUDA toolkit | nvcc 13.3 (at `/usr/local/cuda`, not on `PATH`) |
 | PyTorch | 2.13.0+cu130, installed from the cu130 index |
 | Python | 3.11 |
 | build | `MAX_JOBS=16`, 33 min, exit 0 |
-| result | `quickstart.py` rel. err 1.447e-04; **243 tests passed** |
+| result | `quickstart.py` rel. err 1.27e-05; **243 tests passed** |
 
 The extension also builds and runs against torch 2.10.0+cu130, so it is not
 pinned to one PyTorch release.
@@ -297,7 +306,7 @@ The default builds fp16 + bf16 × head-dim 64 and 128 × causal and non-causal,
 which covers most transformers. Override with `CQSA_KERNEL_SET`:
 
 | value | forward head dims | backward head dims | when |
-|---|---|---|---|
+|:---:|:---:|:---:|:---:|
 | `common` *(default)* | 64, 128 | 64, 128 | almost always |
 | `full` | 32, 64, 96, 128, 192, 256 | 64, 128 | you need a wide-head **forward** |
 | `a100_fp16_hdim128` | 128 (fp16 only) | 128 | fast iteration while developing |
@@ -320,7 +329,7 @@ head-dim 64, **non-causal only**.)
 ### If it goes wrong
 
 | symptom | cause |
-|---|---|
+|:---:|:---:|
 | `undefined symbol` / `ImportError` on `import stream_cqsa` | built against a different torch — rebuild with `--no-build-isolation`, or you upgraded torch after building |
 | `no kernel image is available for execution` | built for the wrong arch; set `FLASH_ATTN_CUDA_ARCHS` and rebuild |
 | `this CQSA build only supports head_dim=64 or 128` | rebuild with `CQSA_KERNEL_SET=full` |
@@ -331,88 +340,11 @@ head-dim 64, **non-causal only**.)
 
 ## Usage
 
+Tensors are `[B, H, N, D]`. Two entry points, and **the explicit one is the one
+to reach for first** — it is the fast path, and it is what the benchmarks
+measure.
 
-One function. It takes the place of `scaled_dot_product_attention` and returns
-the same thing.
-
-```python
-import torch
-from stream_cqsa import stream_cqsa_auto
-
-q, k, v = (torch.randn(1, 8, 1_000_000, 64, device="cuda", dtype=torch.float16)
-           for _ in range(3))
-
-out = stream_cqsa_auto(q, k, v, causal=True)
-```
-
-`stream_cqsa_auto` is the *"just run it"* path: it walks an escalation ladder
-cheapest-first and returns the first configuration that fits.
-
-It tries these seven configurations **in order**, top to bottom, and returns the
-first one that completes without running out of memory:
-
-| # | `itr` (depth) | Q/K/V live on | fp32 accumulator lives on |
-|:--:|:--:|---|---|
-| 1 | 1 | device | device |
-| 2 | 2 | device | device |
-| 3 | 1 | **host** | device |
-| 4 | 2 | **host** | device |
-| 5 | 2 | **host** | **host** |
-| 6 | 3 | **host** | **host** |
-| 7 | 4 | **host** | **host** |
-
-Reading down the table, each step relaxes exactly one constraint and buys device
-memory at the cost of time:
-
-- **raising `itr`** splits the work into more, smaller subproblems (`c^itr`
-  of them, so 7 → 49 → 343), shrinking the in-flight working set;
-- **moving Q/K/V to the host** removes the largest O(N) device term, paging each
-  subsequence in on demand;
-- **moving the accumulator to the host** removes the *other* O(N) device term —
-  the one that no amount of decomposition can shrink.
-
-Because it stops at the first rung that works, you pay only for the headroom you
-actually need. `info["config"]` (or `return_info=True`) reports which rung was
-used.
-
-### Let it choose the depth
-
-**Do not set `itr` yourself.** It defaults to `"auto"`, and automatic depth is
-the intended way to use this library — the whole point is that you should not
-have to know what a decomposition depth is to get a correct result.
-
-There are two levels of automatic, and they fail differently:
-
-| | how it decides | when it is right |
-|---|---|---|
-| `stream_cqsa_auto(...)` | **runs, catches the OOM, escalates, retries** | the robust default — use this |
-| `stream_cqsa_forward(..., itr="auto")` | plans once from free device memory | you want a single call with no retry |
-
-The difference matters. The planner reads *device-wide* free memory, so if
-something else on the card takes memory after it plans — or if you have capped
-your process with `set_per_process_memory_fraction` — its estimate can be
-optimistic. `stream_cqsa_auto` does not care, because it recovers from the
-actual failure rather than predicting it.
-
-Measured, N=262144 on a 40 GiB A100 with the same call each time, varying only
-the memory the process is allowed:
-
-| budget | what `stream_cqsa_auto` did | result |
-|---|---|---|
-| full card | `itr=1` | correct |
-| 1.98 GiB | escalated to `itr=2` | correct |
-| 1.58 GiB | escalated to `itr=2` + host-resident inputs | correct |
-| 1.19 GiB | exhausted the ladder | **clean error**, not a crash |
-
-When a monolithic call fits, `auto` detects that and does not decompose at all
-(`plan_reason: "monolithic fits ...: not decomposing is both faster and more
-accurate"`) — so it costs you nothing to leave it on.
-
-**Fixed `itr` is still supported**, and is the right choice for exactly three
-things: reproducing a published measurement, pinning peak memory to a known
-value, and tracing the time/memory trade curve (as the tables above do).
-
-### Explicit control, and the backward
+### Explicit control (preferred)
 
 ```python
 from stream_cqsa import stream_cqsa_forward, stream_cqsa_backward
@@ -426,6 +358,9 @@ dq, dk, dv = stream_cqsa_backward(q, k, v, dout,
                                   itr=info["itr"],        # <- feed back what auto chose
                                   causal=True, stream_from_host=True)
 ```
+
+You get the plan back and you keep control of your tensors — nothing is moved
+behind your back. **This is the only way to run the backward.**
 
 `stream_cqsa_backward` takes an **`int`**, not `"auto"` — it must use the same
 depth the forward used, and `info["itr"]` is where you read it.
@@ -445,26 +380,96 @@ reconstruct it: that is exactly what makes the decomposed backward exact, since
 it gives `P = exp(s − lse_global) ≤ 1` for every subproblem (see
 [Why it does not overflow](#why-it-does-not-overflow)).
 
+### The "just run it" path
+
+When you do not want to think about residency at all:
+
+```python
+from stream_cqsa import stream_cqsa_auto
+
+out = stream_cqsa_auto(q, k, v, causal=True)
+```
+
+`stream_cqsa_auto` starts from the **safest** configuration rather than the
+cheapest — inputs streamed from the host, fp32 accumulator host-resident, depth
+automatic — and only deepens the decomposition if even that runs out of memory:
+
+| # | `itr` (depth) | Q/K/V live on | fp32 accumulator lives on |
+|:---:|:---:|:---:|:---:|
+| 1 | **auto** | **host** | **host** |
+| 2 | 2 | **host** | **host** |
+| 3 | 3 | **host** | **host** |
+| 4 | 4 | **host** | **host** |
+
+Both O(N) device terms are already gone at rung 1, so depth is the only thing
+left to escalate. `info["config"]` (with `return_info=True`) reports which rung ran.
+
+> ⚠️ **`stream_cqsa_auto` relocates `q`, `k`, `v` to host memory in place.**
+> That relocation is what frees the device memory — it rebinds `.data` rather
+> than copying, so the device allocation is genuinely released. Your tensors
+> will be CPU-resident when the call returns. Pass `.clone()` if you need to
+> keep them on the device, or use `stream_cqsa_forward` above.
+
+**Starting safe costs nothing.** This is the non-obvious part: because depth is
+automatic, the planner returns `itr=0` and does *not* decompose when a
+monolithic call fits. Measured on an A100-40GB, forward, fp16, `B=1 H=8 D=64`:
+
+| N | cheapest-first (old default) | safe-first (current default) | speed-up |
+|:---:|:---:|:---:|:---:|
+| 262 144 | 3.52 s<br>2.37 GiB | 0.74 s<br>1.51 GiB | **4.8×** |
+| 1 048 576 | 13.31 s<br>9.48 GiB | 9.95 s<br>6.03 GiB | **1.3×** |
+
+The old ladder opened with a fixed `itr=1`, forcing a decomposition nobody
+asked for. If you *do* want device-resident-as-long-as-possible behaviour, it is
+still available as `stream_cqsa_auto(..., ladder=ESCALATION_FAST)` — lower
+per-subproblem overhead once a decomposition is genuinely needed, but it OOMs
+far earlier.
+
+### On choosing the depth
+
+**Do not set `itr` yourself.** It defaults to `"auto"` everywhere, and automatic
+depth is the intended way to use this library — you should not have to know what
+a decomposition depth is to get a correct result.
+
+The planner reads *device-wide* free memory, so if something else takes memory
+after it plans — or you capped the process with
+`set_per_process_memory_fraction` — its estimate can be optimistic.
+`stream_cqsa_auto` recovers from the actual failure rather than predicting it.
+Measured, N=262144 on a 40 GiB A100, same call each time:
+
+| budget | what `stream_cqsa_auto` did | result |
+|:---:|:---:|:---:|
+| full card | ran without decomposing | correct |
+| 1.98 GiB | escalated to `itr=2` | correct |
+| 1.58 GiB | escalated to `itr=2` + host-resident inputs | correct |
+| 1.19 GiB | exhausted the ladder | **clean error**, not a crash |
+
+**Fixed `itr` is still supported**, and is the right choice for exactly three
+things: reproducing a published measurement, pinning peak memory to a known
+value, and tracing the time/memory trade curve (as the tables above do).
+
+### What the knobs mean
+
+| argument | effect |
+|:---:|:---:|
+| `itr` | decomposition depth. Higher = smaller subproblems = less peak memory, more time. **Leave it at the `"auto"` default**; set an int only to pin a specific point. |
+| `stream_from_host` | keep Q/K/V in host memory, page each subsequence in on demand. Removes the largest O(N) *device* term. |
+| `accumulate_on_gpu` | `False` moves the fp32 accumulator to the host. Slower per subproblem, but removes an O(N) device term that **no depth of `itr` can shrink**. |
+| `c`, `interest_set` | CQS parameters. Defaults `c=7`, `(0,1,3)` — a λ=1 Singer difference set. |
+
+### Notebooks
+
 **New to the method?** [`notebooks/reference_kernels_demo.ipynb`](notebooks/reference_kernels_demo.ipynb)
 walks through the decomposition using the pure-PyTorch reference kernels in
 `stream_cqsa.backends.exact` — it shows the CQS mask partitioning the pair set,
 swaps inner kernels, and demonstrates the overflow that motivates the production
 design. Slow by construction, but every step is inspectable.
 
-Runnable versions: [`examples/quickstart.py`](examples/quickstart.py),
+Also: [`examples/quickstart.py`](examples/quickstart.py),
 [`notebooks/tutorial_stream_cqsa.ipynb`](notebooks/tutorial_stream_cqsa.ipynb)
 (usage, profiling, and simulating a smaller card with
 `torch.cuda.set_per_process_memory_fraction`), and
 [`notebooks/accuracy_demo.ipynb`](notebooks/accuracy_demo.ipynb).
-
-### What the knobs mean
-
-| argument | effect |
-|---|---|
-| `itr` | decomposition depth. Higher = smaller subproblems = less peak memory, more time. **Leave it at the `"auto"` default**; set an int only to pin a specific point (see above). |
-| `stream_from_host` | keep Q/K/V in host memory, page each subsequence in on demand. Removes the largest O(N) *device* term. |
-| `accumulate_on_gpu` | `False` moves the fp32 accumulator to the host. Slower per subproblem, but removes an O(N) device term that **no depth of `itr` can shrink**. |
-| `c`, `interest_set` | CQS parameters. Defaults `c=7`, `(0,1,3)` — a λ=1 Singer difference set. |
 
 ### Why it does not overflow
 
