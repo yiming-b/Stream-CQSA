@@ -16,6 +16,17 @@ memory, and keeps turning after the monolithic kernel has already failed.
 *Stream-CQSA: Avoiding Out-of-Memory in Attention Computation via Flexible
 Workload Scheduling*
 
+<p align="center">
+  <img src="docs/figures/stream_cqsa_forward.gif"
+       alt="Seven subproblems, each seeing three of seven chunks, together covering all 49 chunk pairs exactly once"
+       width="820">
+</p>
+
+The forward pass in one loop: seven subproblems, each seeing only **three of the
+seven** chunks, together cover **every one of the 49 chunk pairs exactly once** —
+nothing dropped, nothing double-counted. That is why the recomposed output is
+*exact* rather than an approximation.
+
 🧮 **Interactive walkthrough:** **[open the demo](https://claude.ai/code/artifact/c4e4c79d-9184-4ed9-aa4e-8543181f7b75)**
 — every step of the method, forward and backward, recomputed live as you change
 `c`, the interest set, depth, causality, and where the fp32 accumulator lives.
