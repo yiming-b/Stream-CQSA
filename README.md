@@ -151,7 +151,9 @@ Below the OOM boundary, Stream-CQSA is **slower and, in the forward, uses more
 device memory** than the baselines it is meant to rescue. That is the trade, and
 the repository does not hide it:
 
-Ratios against FlashAttention-2 over N = 1M–8M, fp16 (min–max across N):
+Ratios against FlashAttention-2, fp16 (min–max across N). The forward rows
+span N = 1M–8M; the backward rows span 1M–4M, because FlashAttention-2 is
+out of memory at 8M and there is nothing left to take a ratio against:
 
 | | | time | peak memory |
 |:---:|:---:|:---:|:---:|
