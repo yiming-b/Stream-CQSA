@@ -52,9 +52,20 @@ Three Stream-CQSA configurations appear, and the distinction matters:
 The two fixed-depth columns are measurements, not recommendations — they exist
 so the time/memory trade is visible as a curve. The third column is what
 `stream_cqsa_auto` now runs by default: it picks the depth itself and keeps both
-O(N) terms off the device, which is why it is expected to be the last column
-standing at 16M. **Those runs are still in the queue**; the
-cells are marked *pending* rather than estimated.
+O(N) terms off the device, which is why it is the last column standing at 16M —
+finishing there in 32.0 GiB forward and 48.5 GiB backward while every baseline is
+out of memory. **The 8K–8M cells of that column are still in the queue** and are
+marked *pending* rather than estimated.
+
+One caveat on how that column is measured, because `auto` means two different
+things. In the package, `auto` starts at `itr=0` and the planner is free to
+decline to decompose — which is right for a library, since not decomposing is
+both the fastest and the smallest option when the call already fits. Measured
+that way, the planner chose `itr=0` at every `N` from 8K to 8M, and those rows
+report the undecomposed kernel rather than Stream-CQSA. The queued runs therefore
+start at `itr=1`, so the column measures a decomposition at every `N`. Cells where
+the planner would have chosen `itr=0` and the run forced `itr=1` will be marked
+with a star. The 16M cells carry no star: there `auto` genuinely chose `itr=3`.
 
 In normal use you never pick a depth yourself — see
 [On choosing the depth](#on-choosing-the-depth).
@@ -67,19 +78,22 @@ In normal use you never pick a depth yourself — see
 | **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | 218<br>15.3 | 262<br>**8.9** | *pending* |
 | **4M** | 429<br>48.3 | 15421<br>44.3 | 407<br>40.3 | 854<br>30.5 | 998<br>**17.7** | *pending* |
 | **8M** | **OOM** | **OOM** | **OOM** | 3372<br>61.1 | 3895<br>**35.5** | *pending* |
-| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *pending* † | *pending* |
+| **16M** | **OOM** ‡ | **OOM** ‡ | **OOM** ‡ | **OOM** | 15520<br>70.9 | 18890<br>**48.5** |
 
 Each cell is **wall-clock seconds** (top) over **peak GiB** (bottom).
 `FA-2` is FlashAttention-2; `CQSA` is Stream-CQSA.
 
-† **Why `itr=2` acc=GPU has no 16M number yet.** It is not an OOM — it was never
-attempted. The sweep retired a method from all larger N once it OOMed, but keyed
-that on the base method name rather than on `(method, itr)`, so when `itr=1`
-OOMed at 16M the whole family was marked dead and `itr=2` was skipped without
-being run. That is a harness bug, since fixed, and the cell is now queued.
-Whether it survives is genuinely open: `itr=2` used 35.5 GiB at 8M and that term
-is linear in N, so 16M projects to ~71 GiB against the card's 79.3 GiB —
-plausible, but too close to call without running it.
+‡ **The 16M backward baselines are entailed, not separately measured.** All
+three are measured OOM at 8M, and their residency is linear in `N`, so 16M
+cannot fit either. The 16M *forward* OOMs in the table are measured directly.
+
+**On the `itr=2` acc=GPU cell at 16M.** It was previously missing because the
+sweep retired a method from all larger `N` once it OOMed but keyed that on the
+base method name rather than on `(method, itr)`, so `itr=1` failing at 16M marked
+the whole family dead. That harness bug is fixed and the cell has now been run.
+It was projected from the 8M figure — 35.5 GiB scaled linearly to ~71 GiB against
+the card's 79.3 GiB, called "too close to call" — and it measured **70.9 GiB**.
+The linear model was right, and the cell fits with 8.4 GiB to spare.
 
 **This is where the method pays off.** At 8M every baseline is out of memory and
 Stream-CQSA finishes, on the same card with the same numerics. And it is not
@@ -88,9 +102,17 @@ FlashAttention-2's 40.3 GiB — **2.3× less peak memory** — because raising t
 depth shrinks the in-flight working set while the inputs stream from host
 memory. The price is **2.1–2.7×** the time.
 
-At 16M even the acc=GPU configuration runs out: the fp32 accumulator is itself
-O(N) on the device. That is exactly the term the acc=CPU column removes, and
-why it is the last column standing.
+At 16M the separation is complete: every baseline is out of memory, and so is
+`itr=1` acc=GPU — one level of decomposition no longer shrinks the in-flight set
+enough to offset the fp32 accumulator, which is itself an O(N) device term.
+Going a level deeper rescues it, `itr=2` finishing in 70.9 GiB, but only just: the
+accumulator does not shrink with depth, so that column is 8.4 GiB from the edge
+of an 80 GiB card and has nowhere further to go.
+
+Moving the accumulator to the host is what removes that floor. The acc=CPU column
+does the 16M backward in **48.5 GiB**, a third less than acc=GPU at the same `N`,
+and it is the only configuration whose device residency is not pinned by a term
+that depth cannot touch.
 
 ### Forward
 
@@ -100,16 +122,21 @@ why it is the last column standing.
 | **2M** | 32<br>10.1 | 61<br>10.0 | 32<br>10.1 | 53<br>13.0 | 64<br>**8.3** | *pending* |
 | **4M** | 131<br>20.1 | 245<br>20.0 | 130<br>20.1 | 203<br>25.9 | 237<br>**16.7** | *pending* |
 | **8M** | 520<br>40.3 | 966<br>40.0 | 532<br>40.3 | 796<br>51.8 | 907<br>**33.3** | *pending* |
-| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | *pending* † | *pending* |
+| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | 3570<br>66.6 | 6228<br>**32.0** |
 
 Same units: **seconds** over **peak GiB**.
 
-**The forward story is more modest, and worth stating plainly.** In the acc=GPU
-configuration Stream-CQSA does *not* extend the forward's OOM boundary: every
-method here reaches 8M and fails at 16M. What it buys is headroom at a given N
-— 33.3 GiB against FlashAttention-2's 40.3 GiB at 8M (**0.83×**) — for
-**1.5–2.0×** the time. At `itr=1` it actually uses *more* memory than the
-baselines (1.29×), because the fp32 accumulator is an extra O(N) device term.
+**The forward is a narrower win, and worth stating plainly.** Up to 8M every
+method here succeeds, so what Stream-CQSA buys over that range is headroom rather
+than reach: 33.3 GiB against FlashAttention-2's 40.3 GiB at 8M (**0.83×**), for
+**1.5–2.0×** the time. At `itr=1` it uses *more* memory than the baselines
+(1.29×), because the fp32 accumulator is an extra O(N) device term that a single
+level of decomposition does not pay for.
+
+The boundary moves at 16M, where every baseline fails and Stream-CQSA does not.
+The acc=CPU column finishes the 16M forward in **32.0 GiB** — less than
+FlashAttention-2 needs at 8M, for twice the sequence — which is the point of
+keeping both O(N) terms off the device rather than only shrinking the third.
 
 The reason is structural: the forward's peak is dominated by the inputs and the
 accumulator, both O(N) on the device, and neither shrinks with depth. Moving the
