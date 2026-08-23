@@ -74,7 +74,7 @@ def attention_oom_safe(
     scale: float | None = None,
     primary=None,
     release_inputs: bool = False,
-    max_itr: int = 4,
+    max_itr: int | None = None,
     return_info: bool = False,
     verbose: bool = True,
 ) -> torch.Tensor | tuple[torch.Tensor, dict[str, Any]]:
@@ -88,7 +88,7 @@ def attention_oom_safe(
     permits moving Q/K/V to host memory on the fallback -- see the module
     docstring; without it, inputs that do not fit cannot be recovered.
     """
-    from .stable_stream import stream_cqsa_forward
+    from .stable_stream import max_depth_for, stream_cqsa_forward
 
     if q.dim() != 4:
         raise ValueError(f"expected [B, H, N, D], got {tuple(q.shape)}")
@@ -140,6 +140,13 @@ def attention_oom_safe(
     #
     # So: start at least at 1, and on OOM go deeper. Each level shrinks the
     # subproblems by ~c/l^2, which is the guardrail behaviour the method claims.
+    # The ceiling is structural, not a constant: c**itr <= N is the deepest
+    # decomposition the sequence admits, past which a level would produce
+    # subproblems smaller than a single chunk. Capping at a fixed number instead
+    # would abandon calls that a legal deeper level would still have fitted.
+    if max_itr is None:
+        max_itr = max(1, max_depth_for(int(q.shape[-2])))
+
     attempts, out, cinfo = [], None, None
     for depth in range(1, max_itr + 1):
         try:

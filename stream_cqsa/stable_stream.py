@@ -169,6 +169,10 @@ class StableAccumulator:
         self.acc = torch.zeros((B, N, H, D), device=device, dtype=dtype)
         self.l = torch.zeros((B, N, H), device=device, dtype=dtype)
         self.m = torch.full((B, N, H), float("-inf"), device=device, dtype=dtype)
+        # Set only if a merge failed after it had begun writing. The OOM
+        # recovery retries a failed subproblem, which is sound exactly while no
+        # merge is half applied, so the recovery consults this before retrying.
+        self.dirty = False
 
     @property
     def device(self):
@@ -235,9 +239,20 @@ class StableAccumulator:
         acc = self.acc.index_select(1, idx) * old_scale.unsqueeze(-1) + contrib_acc
         lsum = self.l.index_select(1, idx) * old_scale + contrib_l
 
+        # Commit. Every allocation this method needs has already happened
+        # above, and index_copy_ allocates nothing, so an out-of-memory failure
+        # lands before the first write and leaves the accumulator untouched --
+        # which is what makes retrying a failed subproblem sound. Should a write
+        # nonetheless fail partway, the accumulator holds a half-merged
+        # subproblem that no retry can undo, so record it and let the caller
+        # fail loudly rather than recover into a wrong answer.
         self.acc.index_copy_(1, idx, acc)
-        self.l.index_copy_(1, idx, lsum)
-        self.m.index_copy_(1, idx, new_m)
+        try:
+            self.l.index_copy_(1, idx, lsum)
+            self.m.index_copy_(1, idx, new_m)
+        except BaseException:
+            self.dirty = True
+            raise
 
     def lse(self) -> torch.Tensor:
         """
@@ -325,6 +340,107 @@ def build_tasks_cached(*args, **kwargs) -> list[SubproblemTask]:
 
 def clear_task_cache() -> None:
     _TASK_CACHE.clear()
+
+
+def is_oom(exc: BaseException) -> bool:
+    """
+    Whether an exception is an out-of-memory failure.
+
+    Matching on the message alone misses an OutOfMemoryError whose text does not
+    contain the usual phrase, and matching on the type alone misses the plain
+    RuntimeError that some allocation paths and inner kernels raise. The
+    recovery has to see both, since anything it fails to recognise is re-raised
+    to the caller instead of being recovered from.
+    """
+    return isinstance(exc, torch.cuda.OutOfMemoryError) or \
+        "out of memory" in str(exc).lower()
+
+
+def max_depth_for(N: int, c: int = 7) -> int:
+    """
+    Deepest decomposition the sequence structurally admits.
+
+    A subsequence at depth k holds roughly N/c**k tokens, so the recursion stops
+    when a chunk can no longer hold a token. This is the only principled bound on
+    depth: everything shallower is a policy choice, and nothing deeper is
+    meaningful.
+    """
+    n, ci = int(N), int(c)
+    if n <= 0 or ci <= 1:
+        return 0
+    k = 0
+    while ci ** (k + 1) <= n:
+        k += 1
+    return k
+
+
+def refine_task(
+    task: "SubproblemTask",
+    N: int,
+    *,
+    B: int,
+    H: int,
+    D: int,
+    itemsize: int,
+    sorted_gather: bool = True,
+    pin: bool = True,
+    c: int = 7,
+    interest_set: Sequence[int] = (0, 1, 3),
+    seg_align: int = 0,
+) -> list["SubproblemTask"]:
+    """
+    Decompose one subproblem a further level, returning its ``c`` children.
+
+    A child's path is the parent's path with one index appended, and
+    ``group_bits_for_path`` derives its mask from the whole path. The children
+    therefore inherit the parent's masking as well as applying their own, which
+    is what makes their retained pairs partition exactly the parent's retained
+    pairs. Replacing a task by its children mid-run is consequently sound: the
+    merge is additive and order-independent, so provided the parent contributed
+    nothing before it failed, the result is unchanged.
+
+    Refining a single task rather than the whole problem is also what produces
+    the hybrid schedules of the paper: branches that fit stay coarse, and only
+    those that failed are split.
+    """
+    kids: list[SubproblemTask] = []
+    align = int(seg_align) if seg_align else 1
+    for j in range(int(c)):
+        path = tuple(task.path) + (int(j),)
+        ids_np, bits_np = group_bits_for_path(
+            N, path, c, interest_set, sorted_gather=sorted_gather, align=align)
+        L = int(ids_np.shape[0])
+        if L == 0:
+            continue
+        ids = torch.from_numpy(ids_np.astype(np.int64, copy=False))
+        bits = torch.from_numpy(bits_np.astype(np.int64, copy=False))
+        from .interface import CQS_BLK_SIZE, cqs_block_summaries
+        blk_or, blk_and = cqs_block_summaries(bits, CQS_BLK_SIZE)
+        seg_base = None
+        if seg_align:
+            seg_base = torch.from_numpy(
+                segment_block_base(N, path, c=c, interest_set=interest_set,
+                                   align=int(seg_align)))
+        if pin and torch.cuda.is_available():
+            ids = ids.pin_memory()
+            bits = bits.pin_memory()
+            blk_or = blk_or.pin_memory()
+            blk_and = blk_and.pin_memory()
+            if seg_base is not None:
+                seg_base = seg_base.pin_memory()
+        kids.append(
+            SubproblemTask(
+                path_idx=task.path_idx * int(c) + j,
+                path=path,
+                itr=int(task.itr) + 1,
+                token_ids=ids,
+                group_bits=bits,
+                local_size=L,
+                estimated_mem_gib=estimate_task_bytes(L, B, H, D, itemsize) / _GIB,
+                extra={"blk_or": blk_or, "blk_and": blk_and, "seg_base": seg_base},
+            )
+        )
+    return kids
 
 
 def build_tasks(
@@ -976,6 +1092,9 @@ def stream_cqsa_forward(
             "monolithic": True,
             "n_parallel": 1,
             "oom_retries": 0,
+              "depth_escalations": 0,
+              "itr_max_reached": 0,
+              "depth_capped": False,
             "causal": bool(causal),
             "untouched_tokens": 0,
             "wall_s": time.perf_counter() - t0,
@@ -988,13 +1107,21 @@ def stream_cqsa_forward(
     # Segmented input needs sorted gather (runs must be ascending) and the
     # CUDA inner kernel; the torch fallback has no notion of a block map.
     use_seg = bool(segmented) and device.type == "cuda" and sorted_gather and not host_resident
+    # The alignment the TASKS are built with, which is not the same as the
+    # seg_align argument: outside segment/shared-chunk mode the token ids must
+    # not be padded at all. Escalation rebuilds tasks mid-run and has to use
+    # this same value -- padding a refined child to a 128-token boundary made it
+    # LARGER than the parent it replaced (63 real tokens became 256), so the
+    # recovery grew the subproblem it was called to shrink and could only ever
+    # climb to the depth cap and fail.
+    task_seg_align = int(seg_align) if (use_seg or shared_chunks) else 0
     tasks = build_tasks_cached(
         N, itr, B=B, H=H, D=D, itemsize=q.element_size(),
         sorted_gather=sorted_gather, pin=(device.type == "cuda"), c=c,
         interest_set=tuple(interest_set),
         # shared_chunks also needs block-aligned chunks: the pool's block map
         # assumes a tile never straddles a chunk (and therefore a slot) boundary.
-        seg_align=int(seg_align) if (use_seg or shared_chunks) else 0,
+        seg_align=task_seg_align,
     )
     # Token-major views of the ORIGINAL tensors. stride(-1) == 1, so the kernel
     # accepts them without a copy, and every subproblem reads these same
@@ -1027,6 +1154,11 @@ def stream_cqsa_forward(
         "itr": int(itr),
         "n_parallel": int(n_par),
         "oom_retries": 0,
+        "depth_escalations": 0,
+        "itr_max_reached": int(itr),
+        # True only if a subproblem failed at the deepest depth N structurally
+        # admits, which is the one case the recovery cannot act on.
+        "depth_capped": False,
         "monolithic": False,
         "plan_reason": plan_reason,
         "sorted_gather": bool(sorted_gather),
@@ -1042,6 +1174,18 @@ def stream_cqsa_forward(
     }
 
     streams = [torch.cuda.Stream(device=device) for _ in range(n_par)] if on_cuda else [None]
+    if on_cuda:
+        # A freshly created stream carries no dependency on the caller's work.
+        # Without this the gathers and kernels below start while whatever the
+        # caller last issued is still running, and the allocator can hand these
+        # streams blocks that work is still using. That showed up as entire
+        # gradient tensors returning NaN whenever a call followed unsynchronised
+        # GPU work, and disappearing whenever a synchronising read happened to
+        # sit in between. The exit side is already covered by the synchronize
+        # after the scheduling loop; this is the entry side.
+        _caller = torch.cuda.current_stream(device)
+        for _s in streams:
+            _s.wait_stream(_caller)
 
     # Pinned staging, one buffer set per stream slot, sized for the largest
     # subproblem. Pageable H2D runs at roughly a third of pinned bandwidth, and
@@ -1097,6 +1241,8 @@ def stream_cqsa_forward(
     # are therefore issued on ONE dedicated stream, ordered by issue order,
     # while gather+compute stay concurrent.
     merge_stream = torch.cuda.Stream(device=device) if on_cuda else None
+    if merge_stream is not None:
+        merge_stream.wait_stream(torch.cuda.current_stream(device))
 
     # Gather on dim 2 (contiguous [B,H,L,D]) then view as token-major. The
     # kernel only requires stride(-1) == 1 (flash_api.cpp:616), which a
@@ -1277,6 +1423,13 @@ def stream_cqsa_forward(
     t_start = time.perf_counter()
     pending = list(tasks)
     slot = 0
+    # Termination is already guaranteed without this: every recovery either
+    # halves the stream count, which can happen only log2(n_parallel) times, or
+    # refines a task, and refinement stops at the structural depth bound. The
+    # budget is a backstop against an unforeseen loop, so it has to sit well
+    # above what a legitimate run can reach -- a fixed 64 aborted deep
+    # escalations, where one failure per task already exhausts it.
+    oom_retry_budget = 64 + 16 * max(1, len(pending)) * max(1, max_depth_for(N, c))
     # Only worth scoping when CPU tensors are actually on the critical path.
     thread_ctx = _cpu_threads(cpu_threads if acc_device.type == "cpu" else None)
     with thread_ctx:
@@ -1286,26 +1439,64 @@ def stream_cqsa_forward(
               run_one(task, slot % max(1, len(streams)))
               slot += 1
           except RuntimeError as exc:
-              if "out of memory" not in str(exc).lower():
+              if not is_oom(exc):
                   raise
+              if getattr(accum, "dirty", False):
+                  raise RuntimeError(
+                      "Stream-CQSA: ran out of memory while committing a merge. "
+                      "The accumulator holds a partially merged subproblem, so "
+                      "retrying it would double count and recovery is unsafe. "
+                      "Re-run with a lower max_parallel or a higher itr."
+                  ) from exc
               info["oom_retries"] += 1
               task.status = "oom"
               trace.record(
                   stage="oom", task=task, start=time.perf_counter(),
                   end=time.perf_counter(), status="oom",
               )
-              torch.cuda.synchronize(device)
-              torch.cuda.empty_cache()
+              if on_cuda:
+                  # The pure-torch fallback runs this same recovery on the CPU,
+                  # where these would raise "No CUDA GPUs are available" and
+                  # bury the failure they were called to clean up after.
+                  torch.cuda.synchronize(device)
+                  torch.cuda.empty_cache()
               in_flight = 0
               if len(streams) > 1:
+                  # First response is always to lower concurrency: it is free and
+                  # costs no extra arithmetic.
                   streams = streams[: max(1, len(streams) // 2)]
                   info["n_parallel"] = len(streams)
-              # Slots were just drained by the synchronize, and the slot table
-              # must not outlive the stream list it indexes.
-              slot_done = [None] * max(1, len(streams))
-              task.status = "queued"
-              pending.insert(0, task)
-              if info["oom_retries"] > 8:
+                  slot_done = [None] * max(1, len(streams))
+                  task.status = "queued"
+                  pending.insert(0, task)
+              else:
+                  # Concurrency is already one, so the subproblem itself does not
+                  # fit. Decompose it a further level and retry its children.
+                  # Nothing was merged for this task -- the merge follows the
+                  # kernel -- so replacing it double counts nothing, and the
+                  # children's retained pairs partition exactly the parent's.
+                  depth_cap = max_depth_for(N, c)
+                  if int(task.itr) >= depth_cap:
+                      info["depth_capped"] = True
+                      raise torch.cuda.OutOfMemoryError(
+                          f"Stream-CQSA: a subproblem at itr={task.itr} does not fit "
+                          f"with one subsequence resident, and itr={depth_cap} is the "
+                          f"deepest decomposition N={N} admits at c={c}. The O(N*H*D) "
+                          f"resident terms dominate and no depth reduces them; offload "
+                          f"them, or reduce N, H or D."
+                      ) from exc
+                  kids = refine_task(
+                      task, N, B=B, H=H, D=D, itemsize=q.element_size(),
+                      sorted_gather=sorted_gather, pin=True, c=c,
+                      interest_set=interest_set, seg_align=task_seg_align,
+                  )
+                  info["depth_escalations"] += 1
+                  info["itr_max_reached"] = max(
+                      int(info.get("itr_max_reached", 0)),
+                      max((int(t.itr) for t in kids), default=int(task.itr)))
+                  slot_done = [None] * max(1, len(streams))
+                  pending[0:0] = kids
+              if info["oom_retries"] > oom_retry_budget:
                   raise
     if on_cuda:
         torch.cuda.synchronize(device)
@@ -1492,6 +1683,11 @@ def _stream_cqsa_backward_host(
     n_par = min(n_par, len(tasks))
 
     streams = [torch.cuda.Stream(device=device) for _ in range(n_par)]
+    # Same entry-side ordering as the forward: a new stream carries no
+    # dependency on the caller's outstanding work, so it must be told to wait.
+    _caller = torch.cuda.current_stream(device)
+    for _s in streams:
+        _s.wait_stream(_caller)
     max_L = max((int(t.local_size) for t in tasks), default=1)
     max_el = B * max_L * H * D
     # Pinned staging: 5 in (q,k,v,do,o) + 3 out (dq,dk,dv) + lse, per slot.
@@ -1781,13 +1977,41 @@ def stream_cqsa_backward(
                 "the device. The forward returns out/lse wherever its "
                 "accumulator lived -- call .cpu() on them before passing."
             )
-        return _stream_cqsa_backward_host(
-            q, k, v, dout, out, lse, tasks,
-            B=B, H=H, N=N, D=D, device=device, scale=float(scale),
-            causal=bool(causal), max_parallel=max_parallel,
-            cpu_threads=cpu_threads, bwd_fn=flash_attn_bwd_cqs_global_lse,
-            trace=trace,
-        )
+        # The streamed path pre-sizes its pinned staging slots from the planned
+        # task list, so a task cannot be refined in flight. Escalation is applied
+        # at whole-call granularity instead: the accumulators are allocated
+        # inside the call, so a failed attempt leaves nothing to unwind and the
+        # retry simply rebuilds the task list one level deeper.
+        depth_cap = max_depth_for(N, c)
+        depth = int(itr)
+        tasks_at_depth = tasks
+        while True:
+            try:
+                return _stream_cqsa_backward_host(
+                    q, k, v, dout, out, lse, tasks_at_depth,
+                    B=B, H=H, N=N, D=D, device=device, scale=float(scale),
+                    causal=bool(causal), max_parallel=max_parallel,
+                    cpu_threads=cpu_threads, bwd_fn=flash_attn_bwd_cqs_global_lse,
+                    trace=trace,
+                )
+            except RuntimeError as exc:
+                if not is_oom(exc):
+                    raise
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize(device)
+                    torch.cuda.empty_cache()
+                if depth >= depth_cap:
+                    raise torch.cuda.OutOfMemoryError(
+                        f"Stream-CQSA streamed backward: itr={depth_cap} is the "
+                        f"deepest decomposition N={N} admits at c={c}, and the "
+                        f"call still does not fit. The O(N*H*D) resident terms "
+                        f"dominate and no depth reduces them; reduce N, H or D."
+                    ) from exc
+                depth += 1
+                tasks_at_depth = build_tasks_cached(
+                    N, depth, B=B, H=H, D=D, itemsize=q.element_size(),
+                    sorted_gather=sorted_gather, c=c, interest_set=interest_set,
+                )
 
     dq = torch.zeros((B, N, H, D), device=device, dtype=torch.float32)
     dk = torch.zeros((B, N, H, D), device=device, dtype=torch.float32)
@@ -1799,7 +2023,17 @@ def stream_cqsa_backward(
     # subproblem. Same reasoning as the streamed path.
     dps = _global_dpsum(dout, out) if _BWD_USE_DPSUM else None
 
-    for task in tasks:
+    # Set if a subproblem failed after it had begun accumulating. Retrying is
+    # sound exactly while no partial contribution is in the buffers.
+    nonlocal_dirty = [False]
+
+    def _run_bwd_task(task):
+        """Compute one subproblem and commit its contribution.
+
+        Every allocation happens before the three index_add_ calls, so a failure
+        leaves the accumulators untouched and the task may be retried or refined
+        without double counting.
+        """
         idx = task.token_ids.to(device, non_blocking=True)
         bits = task.group_bits.to(device, non_blocking=True)
         # Token-major gathers, matching the kernel's layout.
@@ -1819,9 +2053,59 @@ def stream_cqsa_backward(
             softmax_scale=float(scale), causal=bool(causal),
             dsoftmax_sum=dps_i,
         )
-        # The pair sets partition, so contributions simply add.
-        dq.index_add_(1, idx, dq_i.float())
-        dk.index_add_(1, idx, dk_i.float())
-        dv.index_add_(1, idx, dv_i.float())
+        # The pair sets partition, so contributions simply add. Cast all three
+        # before accumulating any of them: index_add_ allocates nothing, so an
+        # out-of-memory failure then lands before the first accumulation instead
+        # of between them. That matters because the recovery re-runs the failed
+        # subproblem and the accumulation is additive -- a commit left half
+        # applied would be counted twice, silently, in the gradient.
+        dq_f, dk_f, dv_f = dq_i.float(), dk_i.float(), dv_i.float()
+        del dq_i, dk_i, dv_i
+        dq.index_add_(1, idx, dq_f)
+        try:
+            dk.index_add_(1, idx, dk_f)
+            dv.index_add_(1, idx, dv_f)
+        except BaseException:
+            nonlocal_dirty[0] = True
+            raise
+
+    # Same recovery policy as the forward. The backward has no concurrency to
+    # surrender, so an out-of-memory failure goes straight to decomposing the
+    # offending subproblem a further level and retrying its children.
+    depth_cap = max_depth_for(N, c)
+    pending = list(tasks)
+    retries = 0
+    # See the forward: the depth bound is what terminates, this only backstops.
+    retry_budget = 64 + 16 * max(1, len(pending)) * max(1, depth_cap)
+    while pending:
+        task = pending.pop(0)
+        try:
+            _run_bwd_task(task)
+        except RuntimeError as exc:
+            if not is_oom(exc):
+                raise
+            if nonlocal_dirty[0]:
+                raise RuntimeError(
+                    "Stream-CQSA backward: ran out of memory while accumulating a "
+                    "subproblem's gradient. Part of its contribution is already in "
+                    "the buffers, so retrying would double count and recovery is "
+                    "unsafe. Re-run at a higher itr."
+                ) from exc
+            retries += 1
+            if torch.cuda.is_available():
+                torch.cuda.synchronize(device)
+                torch.cuda.empty_cache()
+            if int(task.itr) >= depth_cap or retries > retry_budget:
+                raise torch.cuda.OutOfMemoryError(
+                    f"Stream-CQSA backward: a subproblem at itr={task.itr} does "
+                    f"not fit, and itr={depth_cap} is the deepest decomposition "
+                    f"N={N} admits at c={c}. The O(N*H*D) resident terms dominate "
+                    f"and no depth reduces them; offload them, or reduce N, H or D."
+                ) from exc
+            pending[0:0] = refine_task(
+                task, N, B=B, H=H, D=D, itemsize=q.element_size(),
+                sorted_gather=sorted_gather, pin=True, c=c,
+                interest_set=interest_set, seg_align=0,
+            )
 
     return dq.transpose(1, 2), dk.transpose(1, 2), dv.transpose(1, 2)

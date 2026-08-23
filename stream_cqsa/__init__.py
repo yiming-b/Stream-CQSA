@@ -1,4 +1,4 @@
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .stable_stream import (
     stream_cqsa_forward,
@@ -7,6 +7,7 @@ from .stable_stream import (
 )
 from .oom_fallback import (stream_cqsa_auto, attention_oom_safe,
                            ESCALATION, ESCALATION_FAST)
+from .native_autograd import stream_cqsa_attn, StreamCQSAAttention
 
 from .interface import (
     flash_attn_func,
@@ -42,6 +43,8 @@ __all__ = [
     "stream_cqsa_auto",        # "just run it": escalates until it fits
     "stream_cqsa_forward",     # explicit forward, returns (out, lse)
     "stream_cqsa_backward",    # explicit backward, needs the global lse
+    "stream_cqsa_attn",        # autograd-aware; supports .backward()
+    "StreamCQSAAttention",     # the same, as an nn.Module
     "attention_oom_safe",
     "ESCALATION",
     "ESCALATION_FAST",

@@ -363,9 +363,10 @@ head-dim 64, **non-causal only**.)
 
 ## Usage
 
-Tensors are `[B, H, N, D]`. Two entry points, and **the explicit one is the one
-to reach for first** — it is the fast path, and it is what the benchmarks
-measure.
+Tensors are `[B, H, N, D]`. Three entry points. **The explicit one is the one to
+reach for first** — it is the fast path, and it is what the benchmarks measure.
+If you are training a model rather than benchmarking one, use
+[the autograd operator](#autograd-and-backward) and call `.backward()` as usual.
 
 ### Explicit control (preferred)
 
@@ -383,10 +384,17 @@ dq, dk, dv = stream_cqsa_backward(q, k, v, dout,
 ```
 
 You get the plan back and you keep control of your tensors — nothing is moved
-behind your back. **This is the only way to run the backward.**
+behind your back. This is the lowest-level way to run the backward, and the one
+to use when you want the depth pinned; for `.backward()` support see
+[Autograd and `.backward()`](#autograd-and-backward).
 
-`stream_cqsa_backward` takes an **`int`**, not `"auto"` — it must use the same
-depth the forward used, and `info["itr"]` is where you read it.
+`stream_cqsa_backward` takes an **`int`**, not `"auto"`. Passing `info["itr"]`
+back is the sensible default, since it starts the backward at the depth the
+forward found it could fit rather than rediscovering the same memory pressure.
+It is a starting point rather than a requirement: every depth decomposes the
+same pair set into a different partition, and each subproblem is scored against
+the global log-sum-exp, so the backward is exact at any depth regardless of what
+the forward used.
 
 > The two `.cpu()` calls are currently required: `stream_from_host=True` needs
 > every operand host-resident, and `out`/`lse` come back wherever the forward's
@@ -402,6 +410,107 @@ profiling.
 reconstruct it: that is exactly what makes the decomposed backward exact, since
 it gives `P = exp(s − lse_global) ≤ 1` for every subproblem (see
 [Why it does not overflow](#why-it-does-not-overflow)).
+
+### Autograd and `.backward()`
+
+`stream_cqsa_attn` is a `torch.autograd.Function`, so the operator composes with
+the rest of a model and gradients flow through it normally.
+
+```python
+from stream_cqsa import stream_cqsa_attn
+
+out = stream_cqsa_attn(q, k, v, causal=True)   # [B, H, N, D], input dtype
+out.backward(dout)                             # q.grad, k.grad, v.grad
+```
+
+or as a module:
+
+```python
+from stream_cqsa import StreamCQSAAttention
+
+attn = StreamCQSAAttention(causal=True, itr="auto")
+out = attn(q, k, v)
+```
+
+It takes the same knobs as the explicit path (`itr`, `c`, `interest_set`,
+`stream_from_host`, `accumulate_on_gpu`, `max_parallel`) and handles the two
+bookkeeping chores the explicit path leaves to you: the global log-sum-exp is
+saved for the backward rather than passed by hand, and operands are placed where
+the chosen residency mode expects them, so the `.cpu()` calls above are not
+needed.
+
+Inputs must be **fp16 or bf16** — the kernel does not accept fp32. The output
+carries the input dtype, and so do the gradients.
+
+Depth escalates on its own in both directions, so a call that would not fit is
+decomposed further rather than failing.
+
+#### What the wrapper costs
+
+Both APIs call the same kernels through the same scheduler, so the question is
+what the convenience costs rather than whether it computes something else.
+Measured on an A100-80GB, `B=1 H=8 D=64`, causal, `itr=1`, forward **and**
+backward, median of 3:
+
+<div align="center">
+
+| N | dtype | manual | autograd | ratio |
+|:---:|:---:|:---:|:---:|:---:|
+| **8K** | fp16 | 15.1<br>0.28 | 15.4<br>0.33 | 1.02×<br>1.20× |
+| **8K** | bf16 | 14.3<br>0.28 | 14.6<br>0.33 | 1.02×<br>1.20× |
+| **32K** | fp16 | 71.0<br>1.10 | 71.5<br>1.32 | 1.01×<br>1.20× |
+| **32K** | bf16 | 71.2<br>1.10 | 71.5<br>1.32 | 1.00×<br>1.20× |
+| **128K** | fp16 | 824.1<br>4.38 | 826.3<br>5.26 | 1.00×<br>1.20× |
+| **128K** | bf16 | 824.3<br>4.38 | 826.3<br>5.26 | 1.00×<br>1.20× |
+
+</div>
+
+Each cell is **milliseconds** (top) over **peak GiB** (bottom). Measured in a
+dedicated process, one configuration at a time. The same table in the v2 notebook
+reports a slightly lower ratio at 8K, because there the allocator is carrying
+cached blocks from earlier cells and the fixed per-call cost is a larger share of
+a 15 ms call.
+
+**Time is free** — 1.00–1.01× from 32K up. The 1.02× at 8K is fixed Python
+overhead becoming visible on a 15 ms call, not kernel work.
+
+**Memory costs 1.20×**, and the ratio is the same at every size, so it scales
+with `N` rather than being a constant overhead. `save_for_backward` keeps the
+fp32 output alive from the forward until the backward runs, where the explicit
+path lets you drop it as soon as you are done. At the edge of what fits, use the
+explicit path.
+
+#### Precision
+
+`dK` and `dV` are **bit-identical** between the two paths. `dQ` is not — but
+neither are two runs of the *explicit* path, because FlashAttention accumulates
+`dQ` with atomics and the summation order is whatever the hardware picks that
+run. The wrapper sits inside that spread:
+
+<div align="center">
+
+| N | dtype | explicit vs<br>itself, rerun | explicit vs<br>autograd |
+|:---:|:---:|:---:|:---:|
+| **8K** | fp16 | 2.57e-05 | 2.57e-05 |
+| **8K** | bf16 | 2.06e-04 | 2.06e-04 |
+| **32K** | fp16 | 5.16e-05 | 5.16e-05 |
+| **32K** | bf16 | 2.07e-04 | 1.04e-04 |
+| **128K** | fp16 | 4.90e-05 | 4.90e-05 |
+| **128K** | bf16 | 3.93e-04 | 1.97e-04 |
+
+</div>
+
+Relative max error on `dQ`; `dK` and `dV` are exactly zero in both columns. The
+two columns match, so the wrapper is not distinguishable from rerunning the
+explicit path.
+
+The one systematic difference is dtype. autograd requires a gradient to carry its
+input's dtype, so the wrapper returns fp16/bf16 for the output and for all three
+gradients, while the explicit path hands back the fp32 accumulator. Against an
+fp32 reference that single extra rounding shows up as roughly 5.7e-04 versus
+5.7e-04 on `dQ` and 4.9e-04 versus 4.5e-04 on `dV` at 8K in fp16 — the operand
+dtype setting the floor either way. Use the explicit path when you want the
+unrounded values.
 
 ### The "just run it" path
 
@@ -494,6 +603,18 @@ walks through the decomposition using the pure-PyTorch reference kernels in
 `stream_cqsa.backends.exact` — it shows the CQS mask partitioning the pair set,
 swaps inner kernels, and demonstrates the overflow that motivates the production
 design. Slow by construction, but every step is inspectable.
+
+**Training with it?**
+[`notebooks/tutorial_stream_cqsa_v2.ipynb`](notebooks/tutorial_stream_cqsa_v2.ipynb)
+covers the autograd operator: `.backward()`, a block trained end to end, why the
+backward's depth is free to differ from the forward's, and depth escalation
+recovering from a subproblem that does not fit — including the hybrid schedules
+that leaves behind. It ships already executed, so the numbers are readable
+without a GPU. It is generated by
+[`docs/notebook_src/build_tutorial_v2.py`](docs/notebook_src/build_tutorial_v2.py)
+and executed by
+[`docs/notebook_src/run_notebook.py`](docs/notebook_src/run_notebook.py), so the
+saved outputs always come from running the code rather than from editing cells.
 
 Also: [`examples/quickstart.py`](examples/quickstart.py),
 [`notebooks/tutorial_stream_cqsa.ipynb`](notebooks/tutorial_stream_cqsa.ipynb)
