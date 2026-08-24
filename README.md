@@ -51,21 +51,38 @@ Three Stream-CQSA configurations appear, and the distinction matters:
 
 The two fixed-depth columns are measurements, not recommendations — they exist
 so the time/memory trade is visible as a curve. The third column is what
-`stream_cqsa_auto` now runs by default: it picks the depth itself and keeps both
-O(N) terms off the device, which is why it is the last column standing at 16M —
-finishing there in 32.0 GiB forward and 48.5 GiB backward while every baseline is
-out of memory. **The 8K–8M cells of that column are still in the queue** and are
-marked *pending* rather than estimated.
+`stream_cqsa_auto` now runs by default: it picks the depth itself and moves the
+fp32 accumulator off the device, which is why it is the last column standing at
+16M — finishing there in 32.0 GiB forward and 48.5 GiB backward while every
+baseline is out of memory.
+
+**One thing to be precise about, because the column name overstates it.**
+`accumulate_on_gpu` places the *forward's* fp32 softmax accumulator. The backward
+has no such accumulator, and its own O(N) buffers — `dQ`, `dK`, `dV` — are placed
+by `stream_from_host`, which every Stream-CQSA column here already sets. So
+"acc=CPU" describes what the forward did; in the backward this column and
+`itr=1` acc=GPU run the same code, and their backward figures agree to within
+run-to-run noise (7.6 against 7.6 at 1M, 60.8 against 61.1 at 8M).
+
+The forward is where the accumulator placement pays: **20.7 GiB at 8M against
+FlashAttention-2's 40.3**, roughly half, and less than the `itr=2` acc=GPU column
+needs at the same `N`. In the backward the only lever is depth, which is why the
+16M backward win belongs to `itr=3` rather than to residency.
 
 One caveat on how that column is measured, because `auto` means two different
 things. In the package, `auto` starts at `itr=0` and the planner is free to
 decline to decompose — which is right for a library, since not decomposing is
 both the fastest and the smallest option when the call already fits. Measured
 that way, the planner chose `itr=0` at every `N` from 8K to 8M, and those rows
-report the undecomposed kernel rather than Stream-CQSA. The queued runs therefore
-start at `itr=1`, so the column measures a decomposition at every `N`. Cells where
-the planner would have chosen `itr=0` and the run forced `itr=1` will be marked
-with a star. The 16M cells carry no star: there `auto` genuinely chose `itr=3`.
+report the undecomposed kernel rather than Stream-CQSA. The runs behind this
+column therefore start at `itr=1`, so it measures a decomposition at every `N`. Cells where
+the planner would have chosen `itr=0` and the run forced `itr=1` are marked with a
+star. The 16M cells carry no star: there `auto` genuinely chose `itr=3`.
+
+**Read the backward column with that in mind.** Starred cells are pinned at
+`itr=1`, one level shallower than the `itr=2` column beside them, which is why
+they use more memory rather than less. That is a depth difference, not a
+residency one — see below.
 
 In normal use you never pick a depth yourself — see
 [On choosing the depth](#on-choosing-the-depth).
@@ -74,14 +91,14 @@ In normal use you never pick a depth yourself — see
 
 | N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA auto<br>acc=CPU |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1M** | 26<br>12.1 | 78<br>11.1 | 25<br>10.1 | 57<br>7.6 | 68<br>**4.4** | *pending* |
-| **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | 218<br>15.3 | 262<br>**8.9** | *pending* |
-| **4M** | 429<br>48.3 | 15421<br>44.3 | 407<br>40.3 | 854<br>30.5 | 998<br>**17.7** | *pending* |
-| **8M** | **OOM** | **OOM** | **OOM** | 3372<br>61.1 | 3895<br>**35.5** | *pending* |
+| **1M** | 26<br>12.1 | 78<br>11.1 | 25<br>10.1 | 57<br>7.6 | 68<br>**4.4** | 65<br>7.6 * |
+| **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | 218<br>15.3 | 262<br>**8.9** | 233<br>15.2 * |
+| **4M** | 429<br>48.3 | 15421<br>44.3 | 407<br>40.3 | 854<br>30.5 | 998<br>**17.7** | 881<br>30.4 * |
+| **8M** | **OOM** | **OOM** | **OOM** | 3372<br>61.1 | 3895<br>**35.5** | 3430<br>60.8 * |
 | **16M** | **OOM** ‡ | **OOM** ‡ | **OOM** ‡ | **OOM** | 15520<br>70.9 | 18890<br>**48.5** |
 
 Each cell is **wall-clock seconds** (top) over **peak GiB** (bottom).
-`FA-2` is FlashAttention-2; `CQSA` is Stream-CQSA.
+`FA-2` is FlashAttention-2; `CQSA` is Stream-CQSA. A **\*** marks a cell pinned at `itr=1` where the planner would have chosen `itr=0` — see above.
 
 ‡ **The 16M backward baselines are entailed, not separately measured.** All
 three are measured OOM at 8M, and their residency is linear in `N`, so 16M
@@ -118,13 +135,13 @@ that depth cannot touch.
 
 | N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA auto<br>acc=CPU |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1M** | 8<br>5.0 | 15<br>5.0 | 8<br>5.0 | 14<br>6.5 | 15<br>**4.2** | *pending* |
-| **2M** | 32<br>10.1 | 61<br>10.0 | 32<br>10.1 | 53<br>13.0 | 64<br>**8.3** | *pending* |
-| **4M** | 131<br>20.1 | 245<br>20.0 | 130<br>20.1 | 203<br>25.9 | 237<br>**16.7** | *pending* |
-| **8M** | 520<br>40.3 | 966<br>40.0 | 532<br>40.3 | 796<br>51.8 | 907<br>**33.3** | *pending* |
+| **1M** | 8<br>5.0 | 15<br>5.0 | 8<br>5.0 | 14<br>6.5 | 15<br>4.2 | 21<br>**2.6** * |
+| **2M** | 32<br>10.1 | 61<br>10.0 | 32<br>10.1 | 53<br>13.0 | 64<br>8.3 | 66<br>**5.2** * |
+| **4M** | 131<br>20.1 | 245<br>20.0 | 130<br>20.1 | 203<br>25.9 | 237<br>16.7 | 228<br>**10.4** * |
+| **8M** | 520<br>40.3 | 966<br>40.0 | 532<br>40.3 | 796<br>51.8 | 907<br>33.3 | 846<br>**20.7** * |
 | **16M** | **OOM** | **OOM** | **OOM** | **OOM** | 3570<br>66.6 | 6228<br>**32.0** |
 
-Same units: **seconds** over **peak GiB**.
+Same units: **seconds** over **peak GiB**; **\*** as above.
 
 **The forward is a narrower win, and worth stating plainly.** Up to 8M every
 method here succeeds, so what Stream-CQSA buys over that range is headroom rather
@@ -140,20 +157,24 @@ keeping both O(N) terms off the device rather than only shrinking the third.
 
 The reason is structural: the forward's peak is dominated by the inputs and the
 accumulator, both O(N) on the device, and neither shrinks with depth. Moving the
-accumulator to the host is what should carry the forward past 16M — the pending
-column.
+accumulator to the host is what carries the forward past 16M, and the effect is
+visible well before the boundary — a flat **2.50×** less device memory than
+acc=GPU at the same depth, constant from 512K to 8M, for 6% more time at 8M.
 
 ![memory and wall-clock across N](docs/figures/fig_mem_time_fp16.jpg)
 
 ### What it costs
 
-Below the OOM boundary, Stream-CQSA is **slower and, in the forward, uses more
-device memory** than the baselines it is meant to rescue. That is the trade, and
-the repository does not hide it:
+Below the OOM boundary Stream-CQSA is **always slower** than the baselines it is
+meant to rescue, and at `itr=1` acc=GPU it also uses **more** forward memory than
+they do. That is the trade, and the repository does not hide it. The acc=CPU
+column is the exception on memory: it is under half of FlashAttention-2 in the
+forward at every `N`.
 
 Ratios against FlashAttention-2, fp16 (min–max across N). The forward rows
 span N = 1M–8M; the backward rows span 1M–4M, because FlashAttention-2 is
-out of memory at 8M and there is nothing left to take a ratio against:
+out of memory at 8M and there is nothing left to take a ratio against. The two
+acc=CPU rows span the same N as the fixed-depth row directly above them:
 
 | | | time | peak memory |
 |:---:|:---:|:---:|:---:|
@@ -161,9 +182,15 @@ out of memory at 8M and there is nothing left to take a ratio against:
 | forward | `itr=2` | 1.70–1.99× | **0.83×** |
 | backward | `itr=1` | 2.10–2.26× | 0.76× |
 | backward | `itr=2` | 2.45–2.70× | **0.44×** |
+| forward | `auto` acc=CPU | 1.59–2.68× | **0.52×** |
+| backward | `auto` acc=CPU | 2.16–2.57× | 0.76× |
 
-The memory ratios are strikingly constant across N — the decomposition shrinks
-the working set by a fixed factor set by `itr`, not by anything N-dependent.
+The memory ratios are strikingly constant across N — to two decimal places in
+every row — because the decomposition shrinks the working set by a fixed factor
+set by the depth and the accumulator's placement, not by anything N-dependent.
+The time ratios are not constant, and improve with N: the fixed per-call cost of
+gathering and staging is amortised over more work as `N` grows, which is why
+acc=CPU is 2.68× FlashAttention-2 at 1M and 1.59× at 8M.
 
 **Use FlashAttention-2 when it fits.** Reach for Stream-CQSA when it does not,
 or when you need the backward's memory headroom more than you need the 2×.
