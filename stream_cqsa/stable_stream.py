@@ -1627,12 +1627,25 @@ def _global_dpsum(dout: torch.Tensor, out: torch.Tensor,
 def _stream_cqsa_backward_host(
     q, k, v, dout, out, lse, tasks, *,
     B, H, N, D, device, scale, causal, max_parallel, cpu_threads, bwd_fn,
-    trace=None,
+    trace=None, accumulate_on_gpu=False,
 ):
     """
-    Host-resident backward. Q/K/V/dO/O/lse and the dQ/dK/dV accumulators stay in
-    CPU memory; each subsequence is gathered on the host, streamed to the
-    device, differentiated, and scattered back.
+    Host-resident backward. Q/K/V/dO/O/lse stay in CPU memory and each
+    subsequence is gathered on the host, streamed to the device, and
+    differentiated there.
+
+    Where the dQ/dK/dV accumulators live is a separate choice, and it is the
+    backward's analogue of the forward's ``accumulate_on_gpu``. They are three
+    fp32 ``[B, N, H, D]`` buffers, so keeping them on the device costs
+    ``12 * N * H * D`` bytes that no depth of decomposition reduces -- the same
+    shape of O(N) device term the forward's accumulator has, and three times the
+    size. On the host they cost a D2H copy and a scatter per subproblem instead,
+    which the pipeline overlaps with the next subproblem's compute.
+
+    Until this was exposed the two were welded together: streaming the inputs
+    forced host accumulation, so there was no way to ask for the fast
+    configuration, and a run labelled "acc=GPU" was in fact accumulating on the
+    host. That made the two settings indistinguishable in every measurement.
 
     The accumulators are why this matters more for the backward than for the
     forward. The forward keeps one ``(acc, l, m)`` set; the backward keeps three
@@ -1665,9 +1678,10 @@ def _stream_cqsa_backward_host(
              if _BWD_USE_DPSUM else None)          # [B, H, N]
     o_tm = None if _BWD_USE_DPSUM else out.transpose(1, 2).contiguous().to(dtype)
 
-    dq = torch.zeros((B, N, H, D), dtype=torch.float32)
-    dk = torch.zeros((B, N, H, D), dtype=torch.float32)
-    dv = torch.zeros((B, N, H, D), dtype=torch.float32)
+    acc_dev = device if accumulate_on_gpu else None
+    dq = torch.zeros((B, N, H, D), dtype=torch.float32, device=acc_dev)
+    dk = torch.zeros((B, N, H, D), dtype=torch.float32, device=acc_dev)
+    dv = torch.zeros((B, N, H, D), dtype=torch.float32, device=acc_dev)
 
     if max_parallel is None:
         n_par = choose_parallelism(
@@ -1725,6 +1739,8 @@ def _stream_cqsa_backward_host(
 
     def _scatter(slot: int, idx_cpu, Lloc: int, runs) -> tuple[float, float]:
         """Add one slot's gradients into the host accumulators."""
+        if accumulate_on_gpu:
+            return 0.0, 0.0          # already added on the device, in-line
         n_el = B * Lloc * H * D
         for acc, buf in zip((dq, dk, dv), stage_out[slot]):
             # The pair sets partition, so contributions simply add (algo:bwd
@@ -1857,8 +1873,18 @@ def _stream_cqsa_backward_host(
                 e_d2h = mk()
                 if tr is not None:
                     e_d2h[0].record()
-                for g, buf in zip((dq_i, dk_i, dv_i), stage_out[slot]):
-                    buf[:n_el].view(B, Lloc, H, D).copy_(g, non_blocking=True)
+                if accumulate_on_gpu:
+                    # The accumulators are already here, so the gradients never
+                    # leave the device: no D2H, no pinned staging, no scatter
+                    # worker. index_add_ promotes the fp16/bf16 source to the
+                    # fp32 accumulator exactly as the host add_ does, so the two
+                    # settings agree to the bit.
+                    idx_dev = idx_cpu.to(device, non_blocking=True)
+                    for acc, g in zip((dq, dk, dv), (dq_i, dk_i, dv_i)):
+                        acc.index_add_(1, idx_dev, g.to(torch.float32))
+                else:
+                    for g, buf in zip((dq_i, dk_i, dv_i), stage_out[slot]):
+                        buf[:n_el].view(B, Lloc, H, D).copy_(g, non_blocking=True)
                 if tr is not None:
                     e_d2h[1].record()
                 ev = torch.cuda.Event()
@@ -1907,6 +1933,7 @@ def stream_cqsa_backward(
     c: int = 7,
     interest_set: Sequence[int] = (0, 1, 3),
     stream_from_host: bool = False,
+    accumulate_on_gpu: bool = False,
     max_parallel: int | None = None,
     cpu_threads: int | None = _CPU_MERGE_THREADS_DEFAULT,
     trace: "TraceRecorder | None" = None,
@@ -1992,7 +2019,7 @@ def stream_cqsa_backward(
                     B=B, H=H, N=N, D=D, device=device, scale=float(scale),
                     causal=bool(causal), max_parallel=max_parallel,
                     cpu_threads=cpu_threads, bwd_fn=flash_attn_bwd_cqs_global_lse,
-                    trace=trace,
+                    trace=trace, accumulate_on_gpu=bool(accumulate_on_gpu),
                 )
             except RuntimeError as exc:
                 if not is_oom(exc):

@@ -73,6 +73,7 @@ class _StreamCQSANative(torch.autograd.Function):
             itr=int(info["itr"]),                 # start the backward where the forward fit
             c=int(c), interest_set=tuple(interest_set),
             stream_from_host=bool(stream_from_host),
+            accumulate_on_gpu=bool(accumulate_on_gpu),
             max_parallel=max_parallel,
             sorted_gather=bool(sorted_gather),
             out_dtype=q.dtype,
@@ -110,6 +111,10 @@ class _StreamCQSANative(torch.autograd.Function):
             sorted_gather=cfg["sorted_gather"],
             c=cfg["c"], interest_set=cfg["interest_set"],
             stream_from_host=host,
+            # One knob for the whole call: the backward places its dQ/dK/dV the
+            # same way the forward placed its accumulator, so a caller who asked
+            # to keep O(N) terms off the device gets that in both directions.
+            accumulate_on_gpu=cfg["accumulate_on_gpu"],
             max_parallel=cfg["max_parallel"],
         )
 

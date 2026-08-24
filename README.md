@@ -80,9 +80,8 @@ the planner would have chosen `itr=0` and the run forced `itr=1` are marked with
 star. The 16M cells carry no star: there `auto` genuinely chose `itr=3`.
 
 **Read the backward column with that in mind.** Starred cells are pinned at
-`itr=1`, one level shallower than the `itr=2` column beside them, which is why
-they use more memory rather than less. That is a depth difference, not a
-residency one — see below.
+`itr=1`, one level shallower than a fixed `itr=2` would be, so they carry a larger
+in-flight working set than the depth the planner might otherwise reach.
 
 In normal use you never pick a depth yourself — see
 [On choosing the depth](#on-choosing-the-depth).
@@ -91,45 +90,58 @@ In normal use you never pick a depth yourself — see
 
 | N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA auto<br>acc=CPU |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1M** | 26<br>12.1 | 78<br>11.1 | 25<br>10.1 | 57<br>7.6 | 68<br>**4.4** | 65<br>7.6 * |
-| **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | 218<br>15.3 | 262<br>**8.9** | 233<br>15.2 * |
-| **4M** | 429<br>48.3 | 15421<br>44.3 | 407<br>40.3 | 854<br>30.5 | 998<br>**17.7** | 881<br>30.4 * |
-| **8M** | **OOM** | **OOM** | **OOM** | 3372<br>61.1 | 3895<br>**35.5** | 3430<br>60.8 * |
-| **16M** | **OOM** ‡ | **OOM** ‡ | **OOM** ‡ | **OOM** | 15520<br>70.9 | 18890<br>**48.5** |
+| **1M** | 26<br>12.1 | 78<br>11.1 | 25<br>10.1 | *pending* | *pending* | 65<br>7.6 * |
+| **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | *pending* | *pending* | 233<br>15.2 * |
+| **4M** | 429<br>48.3 | 15421<br>44.3 | 407<br>40.3 | *pending* | *pending* | 881<br>30.4 * |
+| **8M** | **OOM** | **OOM** | **OOM** | *pending* | *pending* | 3430<br>60.8 * |
+| **16M** | **OOM** ‡ | **OOM** ‡ | **OOM** ‡ | *pending* | *pending* | 18890<br>**48.5** |
 
 Each cell is **wall-clock seconds** (top) over **peak GiB** (bottom).
-`FA-2` is FlashAttention-2; `CQSA` is Stream-CQSA. A **\*** marks a cell pinned at `itr=1` where the planner would have chosen `itr=0` — see above.
+`FA-2` is FlashAttention-2; `CQSA` is Stream-CQSA. A **\*** marks a cell pinned at
+`itr=1` where the planner would have chosen `itr=0` — see above.
+
+**Why both acc=GPU backward columns are pending.** Until recently the streamed
+backward kept `dQ`, `dK` and `dV` on the host unconditionally: the placement was
+implied by `stream_from_host` and no argument could ask for anything else. Every
+"acc=GPU" backward figure ever recorded was therefore accumulating on the host —
+the same configuration as the acc=CPU column, which is why the two agreed to
+within run-to-run noise at every `N` rather than trading against each other. The
+backward now takes `accumulate_on_gpu` like the forward does, and the column is
+being re-measured. The retired rows are kept in
+`outputs/paper/staled_results/bwd_accgpu_host_accumulated/`.
+
+The forward columns are unaffected: the forward's accumulator placement always
+worked, and its acc=GPU figures mean what they say.
 
 ‡ **The 16M backward baselines are entailed, not separately measured.** All
 three are measured OOM at 8M, and their residency is linear in `N`, so 16M
 cannot fit either. The 16M *forward* OOMs in the table are measured directly.
 
-**On the `itr=2` acc=GPU cell at 16M.** It was previously missing because the
-sweep retired a method from all larger `N` once it OOMed but keyed that on the
-base method name rather than on `(method, itr)`, so `itr=1` failing at 16M marked
-the whole family dead. That harness bug is fixed and the cell has now been run.
-It was projected from the 8M figure — 35.5 GiB scaled linearly to ~71 GiB against
-the card's 79.3 GiB, called "too close to call" — and it measured **70.9 GiB**.
-The linear model was right, and the cell fits with 8.4 GiB to spare.
+**On the `itr=2` acc=GPU cell at 16M.** It was long missing because the sweep
+retired a method from all larger `N` once it OOMed but keyed that on the base
+method name rather than on `(method, itr)`, so `itr=1` failing at 16M marked the
+whole family dead. That harness bug is fixed. When the cell was first run it
+measured 70.9 GiB against a linear projection of ~71 GiB from the 8M figure —
+the residency model predicting it to within 0.1 GiB. That run accumulated on the
+host, so the figure is retired along with the rest of the column, but the
+agreement is worth recording: it is the O(N) residency model being tested against
+a number nobody had seen.
 
 **This is where the method pays off.** At 8M every baseline is out of memory and
-Stream-CQSA finishes, on the same card with the same numerics. And it is not
-only a fallback: at 4M it does the backward in 17.7 GiB against
-FlashAttention-2's 40.3 GiB — **2.3× less peak memory** — because raising the
-depth shrinks the in-flight working set while the inputs stream from host
-memory. The price is **2.1–2.7×** the time.
+Stream-CQSA finishes, on the same card with the same numerics. And it is not only
+a fallback: at 4M it does the backward in 30.4 GiB against FlashAttention-2's
+40.3 GiB — **0.76×** the peak memory — for **2.2×** the time, because
+decomposition shrinks the in-flight working set while the inputs stream from host
+memory. The sharper ratio a deeper fixed depth gives is what the pending acc=GPU
+columns will show.
 
-At 16M the separation is complete: every baseline is out of memory, and so is
-`itr=1` acc=GPU — one level of decomposition no longer shrinks the in-flight set
-enough to offset the fp32 accumulator, which is itself an O(N) device term.
-Going a level deeper rescues it, `itr=2` finishing in 70.9 GiB, but only just: the
-accumulator does not shrink with depth, so that column is 8.4 GiB from the edge
-of an 80 GiB card and has nowhere further to go.
-
-Moving the accumulator to the host is what removes that floor. The acc=CPU column
-does the 16M backward in **48.5 GiB**, a third less than acc=GPU at the same `N`,
-and it is the only configuration whose device residency is not pinned by a term
-that depth cannot touch.
+At 16M the separation is complete: every baseline is out of memory and the
+acc=CPU column finishes the backward in **48.5 GiB**, well inside an 80 GiB card.
+Whether a device-resident accumulator can reach 16M at all is the open question
+the pending columns answer. The arithmetic is not encouraging for it: three fp32
+`[B, N, H, D]` buffers are 12 bytes per element, 96 GiB at this `N`, and that term
+is O(N) — no depth of decomposition touches it. Keeping those buffers off the
+device is the only lever that does.
 
 ### Forward
 
@@ -180,10 +192,10 @@ acc=CPU rows span the same N as the fixed-depth row directly above them:
 |:---:|:---:|:---:|:---:|
 | forward | `itr=1` | 1.49–1.81× | 1.29× |
 | forward | `itr=2` | 1.70–1.99× | **0.83×** |
-| backward | `itr=1` | 2.10–2.26× | 0.76× |
-| backward | `itr=2` | 2.45–2.70× | **0.44×** |
+| backward | `itr=1` | *pending* | *pending* |
+| backward | `itr=2` | *pending* | *pending* |
 | forward | `auto` acc=CPU | 1.59–2.68× | **0.52×** |
-| backward | `auto` acc=CPU | 2.16–2.57× | 0.76× |
+| backward | `auto` acc=CPU | 2.16–2.57× | **0.76×** |
 
 The memory ratios are strikingly constant across N — to two decimal places in
 every row — because the decomposition shrinks the working set by a fixed factor
