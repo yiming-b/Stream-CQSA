@@ -88,13 +88,13 @@ In normal use you never pick a depth yourself — see
 
 ### Forward
 
-| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA auto<br>acc=CPU |
+| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA acc=CPU<br>smallest itr |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | **1M** | 8<br>5.0 | 15<br>5.0 | 8<br>5.0 | 14<br>6.5 | 15<br>4.2 | 21<br>**2.6** * |
 | **2M** | 32<br>10.1 | 61<br>10.0 | 32<br>10.1 | 52<br>13.0 | 65<br>8.3 | 66<br>**5.2** * |
 | **4M** | 131<br>20.1 | 245<br>20.0 | 130<br>20.1 | 203<br>25.9 | 240<br>16.7 | 228<br>**10.4** * |
 | **8M** | 520<br>40.2 | 966<br>40.0 | 532<br>40.3 | 802<br>51.8 | 914<br>33.3 | 846<br>**20.7** * |
-| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | 3544<br>66.6 | 6228<br>**32.0** |
+| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | 3544<br>66.6 | 3277<br>**41.5** |
 
 Each cell is **wall-clock seconds** (top) over **peak GiB** (bottom).
 `FA-2` is FlashAttention-2; `CQSA` is Stream-CQSA. A **\*** marks a cell pinned at
@@ -117,7 +117,7 @@ story — a flat **2.50×** less device memory than acc=GPU at the same depth, f
 
 ### Backward
 
-| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA auto<br>acc=CPU |
+| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA acc=CPU<br>smallest itr |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | **1M** | 26<br>12.1 | 78<br>11.1 | 25<br>10.1 | 56<br>13.6 | 66<br>10.4 | 66<br>**7.6** * |
 | **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | 216<br>27.3 | 256<br>20.9 | 235<br>**15.2** * |
