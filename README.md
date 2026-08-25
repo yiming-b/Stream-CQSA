@@ -74,8 +74,14 @@ both the fastest and the smallest option when the call already fits. Measured
 that way, the planner chose `itr=0` at every `N` from 8K to 8M, and those rows
 report the undecomposed kernel rather than Stream-CQSA. The runs behind this
 column therefore start at `itr=1`, so it measures a decomposition at every `N`
-and stays comparable with the fixed-depth columns beside it. Only at 16M, where
-a monolithic call no longer fits, does the planner make a substantive choice. Cells where
+and stays comparable with the fixed-depth columns beside it.
+
+Above that floor, **`auto` means the smallest depth that fits the memory
+budget** — the shallowest decomposition is also the fastest, so there is no
+reason to go deeper than feasibility requires. That is `itr=1` at every `N` here
+except the 16M backward, which needs `itr=3`: three fp32 `[B,N,H,D]` gradient
+buffers put `itr=1` at a projected 121.6 GiB, against 79.3 available. The depth
+used is given under each table. Cells where
 the planner would have chosen `itr=0` and the run forced `itr=1` are marked with a
 star. The 16M cells carry no star: there `auto` genuinely chose `itr=3`.
 
@@ -88,7 +94,7 @@ In normal use you never pick a depth yourself — see
 
 ### Forward
 
-| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA acc=CPU<br>smallest itr |
+| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA auto<br>acc=CPU |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | **1M** | 8<br>5.0 | 15<br>5.0 | 8<br>5.0 | 14<br>6.5 | 15<br>4.2 | 21<br>**2.6** * |
 | **2M** | 32<br>10.1 | 61<br>10.0 | 32<br>10.1 | 52<br>13.0 | 65<br>8.3 | 66<br>**5.2** * |
@@ -117,7 +123,7 @@ story — a flat **2.50×** less device memory than acc=GPU at the same depth, f
 
 ### Backward
 
-| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA acc=CPU<br>smallest itr |
+| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA auto<br>acc=CPU |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | **1M** | 26<br>12.1 | 78<br>11.1 | 25<br>10.1 | 56<br>13.6 | 66<br>10.4 | 66<br>**7.6** * |
 | **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | 216<br>27.3 | 256<br>20.9 | 235<br>**15.2** * |
