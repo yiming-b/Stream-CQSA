@@ -2050,7 +2050,13 @@ def stream_cqsa_backward(
                 if torch.cuda.is_available():
                     torch.cuda.synchronize(device)
                     torch.cuda.empty_cache()
-                if not allow_escalation or depth >= depth_cap:
+                if not allow_escalation:
+                    raise torch.cuda.OutOfMemoryError(
+                        f"Stream-CQSA streamed backward: itr={depth} does not fit "
+                        f"and escalation is disabled (allow_escalation=False), so "
+                        f"this depth genuinely does not fit."
+                    ) from exc
+                if depth >= depth_cap:
                     raise torch.cuda.OutOfMemoryError(
                         f"Stream-CQSA streamed backward: itr={depth_cap} is the "
                         f"deepest decomposition N={N} admits at c={c}, and the "
