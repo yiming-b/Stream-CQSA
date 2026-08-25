@@ -578,8 +578,21 @@ def choose_parallelism(
     return int(max(1, min(max_streams, len(tasks), mem_cap, occupancy_cap)))
 
 
+def per_el_floor(itemsize: int, stream_from_host: bool,
+                 accumulate_on_gpu: bool) -> int:
+    """Device-resident bytes per element that no decomposition depth reduces."""
+    per_el = 4
+    if not stream_from_host:
+        per_el += 3 * itemsize
+    if accumulate_on_gpu:
+        per_el += 4
+    return per_el
+
+
 def estimate_peak_bytes(N: int, itr: int, *, B: int, H: int, D: int, itemsize: int,
-                       n_par: int = 2, c: int = 7, l: int = 3) -> int:
+                       n_par: int = 2, c: int = 7, l: int = 3,
+                       stream_from_host: bool = False,
+                       accumulate_on_gpu: bool = True) -> int:
     """
     Predicted peak device memory for a Stream-CQSA forward.
 
@@ -587,7 +600,18 @@ def estimate_peak_bytes(N: int, itr: int, *, B: int, H: int, D: int, itemsize: i
 
       floor     = (3*itemsize + 4 + 4) * N*H*D
                   Q/K/V, the fp32 accumulator, and the fp32 output. All
-                  O(N*H*D) and completely independent of ``itr``.
+                  O(N*H*D) and completely independent of ``itr`` -- but only
+                  those terms that are actually DEVICE-resident belong in a
+                  device-memory estimate. ``stream_from_host`` moves Q/K/V to
+                  the host and ``accumulate_on_gpu=False`` moves the
+                  accumulator, and each must then be dropped from the floor.
+
+                  Counting them regardless is what made the planner refuse to
+                  decompose at N=16M: it reported an O(N*H*D) floor of 112 GiB
+                  against a 59 GiB budget, concluded nothing fit, and fell back
+                  to its deepest depth. The configuration it was estimating went
+                  on to run in 32 GiB, and at a shallower depth would have run
+                  1.6x faster at the same peak.
       transient = n_par * (3*itemsize + 4) * L*H*D,  L = N*(l/c)^itr
                   the gathered q_i/k_i/v_i and out_i in flight.
 
@@ -595,7 +619,7 @@ def estimate_peak_bytes(N: int, itr: int, *, B: int, H: int, D: int, itemsize: i
     1.02x at itr=2, flat across N = 32768 .. 131072. The ratio does *not* improve
     with N because both terms are linear in N.
     """
-    floor = (3 * itemsize + 4 + 4) * N * H * D
+    floor = per_el_floor(itemsize, stream_from_host, accumulate_on_gpu) * N * H * D
     L = N
     for _ in range(int(itr)):
         L = int(L * l / c)
@@ -627,6 +651,8 @@ def plan_decomposition(
     c: int = 7,
     interest_set: Sequence[int] = (0, 1, 3),
     max_itr: int = 3,
+    stream_from_host: bool = False,
+    accumulate_on_gpu: bool = True,
 ) -> tuple[int, str]:
     """
     Choose the decomposition depth from measured free memory.
@@ -658,12 +684,14 @@ def plan_decomposition(
 
     l = len(interest_set)
     for itr in range(1, int(max_itr) + 1):
-        need = estimate_peak_bytes(N, itr, B=B, H=H, D=D, itemsize=itemsize, c=c, l=l)
+        need = estimate_peak_bytes(N, itr, B=B, H=H, D=D, itemsize=itemsize, c=c, l=l,
+                                   stream_from_host=stream_from_host,
+                                   accumulate_on_gpu=accumulate_on_gpu)
         if need <= budget:
             return itr, (f"monolithic needs {mono / _GIB:.2f} GiB > budget "
                          f"{budget / _GIB:.2f} GiB; itr={itr} fits at {need / _GIB:.2f} GiB")
 
-    floor = (3 * itemsize + 8) * N * H * D
+    floor = per_el_floor(itemsize, stream_from_host, accumulate_on_gpu) * N * H * D
     return max_itr, (
         f"nothing fits the {budget / _GIB:.2f} GiB budget; using itr={max_itr}. "
         f"The O(N*H*D) floor alone is {floor / _GIB:.2f} GiB and deeper "
@@ -1059,6 +1087,12 @@ def stream_cqsa_forward(
         itr, plan_reason = plan_decomposition(
             N, B=B, H=H, D=D, itemsize=q.element_size(), device=device,
             safety=safety, c=c, interest_set=interest_set,
+            # Tell the planner where this call's O(N) terms will actually live.
+            # Without these it estimates every configuration as if Q/K/V and the
+            # accumulator were device-resident, which is exactly the
+            # configuration the caller has asked it not to use.
+            stream_from_host=bool(host_resident),
+            accumulate_on_gpu=bool(accumulate_on_gpu),
         )
 
     if int(itr) == 0:

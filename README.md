@@ -73,7 +73,9 @@ decline to decompose — which is right for a library, since not decomposing is
 both the fastest and the smallest option when the call already fits. Measured
 that way, the planner chose `itr=0` at every `N` from 8K to 8M, and those rows
 report the undecomposed kernel rather than Stream-CQSA. The runs behind this
-column therefore start at `itr=1`, so it measures a decomposition at every `N`. Cells where
+column therefore start at `itr=1`, so it measures a decomposition at every `N`
+and stays comparable with the fixed-depth columns beside it. Only at 16M, where
+a monolithic call no longer fits, does the planner make a substantive choice. Cells where
 the planner would have chosen `itr=0` and the run forced `itr=1` are marked with a
 star. The 16M cells carry no star: there `auto` genuinely chose `itr=3`.
 

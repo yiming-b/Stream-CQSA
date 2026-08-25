@@ -1,5 +1,55 @@
 # Changelog
 
+## Unreleased
+
+### Fixed: the depth planner counted host-resident terms as device memory
+
+`estimate_peak_bytes` computed its O(N) floor as `(3*itemsize + 4 + 4) * N*H*D`
+-- Q/K/V, the fp32 accumulator and the fp32 output -- regardless of where those
+tensors actually live. But `stream_from_host` puts Q/K/V on the host and
+`accumulate_on_gpu=False` puts the accumulator there, which is precisely the
+configuration a caller asking for them has requested.
+
+The failure is not conservatism. An estimator that overstates a floor no depth
+can satisfy does not pick a safer depth, it concludes that nothing fits and falls
+back to the deepest one it has. At N=16M the planner reported an O(N*H*D) floor
+of 112 GiB against a 59 GiB budget and selected itr=3. The configuration it was
+estimating then ran in 32.0 GiB, and at itr=2 completes the forward in 3896 s
+against 6228 s -- strictly faster at an identical peak. The fallback was a
+dominated choice rather than a trade.
+
+`estimate_peak_bytes` and `plan_decomposition` now take `stream_from_host` and
+`accumulate_on_gpu` and drop the terms that are not device-resident, and the
+forward passes its own configuration through. At the 16M budget the planner
+returns itr=2 where it previously returned itr=3. Below 16M nothing changes: a
+monolithic call fits, so the planner returns itr=0 by a path that never consulted
+the floor.
+
+### Fixed: a fixed depth could silently become a deeper one
+
+`stream_cqsa_forward` and `stream_cqsa_backward` take `allow_escalation`, and the
+experiment runner sets it False whenever `itr` is not `"auto"`. A column labelled
+itr=1 has to report what itr=1 costs, including when itr=1 does not fit; with
+recovery enabled a failing configuration is refined and the rescue is recorded
+under the depth that failed. A 16M forward reported success at 76.0 GiB this way,
+having escalated seven of its subproblems.
+
+### Added: the backward reports its own escalations
+
+`stream_cqsa_backward` takes an optional `bwd_info` dict and records
+`itr_requested`, `itr_reached`, `depth_escalations` and `oom_retries` from both
+its recovery paths. It previously returned only gradients, so a row's counters
+came from the forward and a backward that deepened itself was indistinguishable
+from one that did not.
+
+### Added: the backward can place its accumulators
+
+`stream_cqsa_backward` takes `accumulate_on_gpu`, the analogue of the forward's.
+dQ, dK and dV are three fp32 [B,N,H,D] buffers -- 12 bytes per element, measured
+at 12.01 against a predicted 12.00 -- and where they live decides whether 8M runs
+at all. Previously the placement was implied by `stream_from_host` with no way to
+choose, so the acc=GPU and acc=CPU backward columns were the same measurement.
+
 ## 0.2.0
 
 ### Autograd
