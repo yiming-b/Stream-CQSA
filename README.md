@@ -163,10 +163,15 @@ device is the only lever that does.
 | **8M** | 520<br>40.3 | 966<br>40.0 | 532<br>40.3 | 796<br>51.8 | 907<br>33.3 | 846<br>**20.7** * |
 | **16M** | **OOM** | **OOM** | **OOM** | **OOM** | 3570<br>66.6 | 6228<br>**32.0** |
 
-Same units: **seconds** over **peak GiB**; **\*** as above. The Stream-CQSA
-forward figures come from a single run with the decomposition depth pinned, so
-each column reports the depth it names rather than a depth the scheduler reached
-on its own; every cell recorded zero escalations.
+Same units: **seconds** over **peak GiB**; **\*** as above. The fixed-depth
+Stream-CQSA forward figures come from a single run with the depth pinned, so each
+reports the depth it names: every one recorded zero escalations.
+
+The one exception is the **16M acc=CPU** cell, which predates that counter and so
+carries no record of whether the scheduler deepened itself while running. For an
+`auto` column that is not a mislabel — `auto` is defined as whatever depth the
+scheduler picks, and 32.0 GiB is what it achieved — but the `itr=3` it reports is
+the planner's choice going in, which may understate the depth actually executed.
 
 **The forward is a narrower win, and worth stating plainly.** Up to 8M every
 method here succeeds, so what Stream-CQSA buys over that range is headroom rather
