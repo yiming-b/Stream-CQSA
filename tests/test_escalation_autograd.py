@@ -432,3 +432,30 @@ def test_call_after_unsynchronized_gpu_work_is_not_corrupted(n):
         for name, x in zip(("dQ", "dK", "dV"), t):
             bad = int((~torch.isfinite(x.grad.float())).sum())
             assert bad == 0, f"{name} has {bad} non-finite values at N={n}"
+
+
+def test_escalation_can_be_pinned_off_for_a_fixed_depth_measurement():
+    """
+    A column labelled itr=1 has to report what itr=1 costs, including when itr=1
+    does not fit. With escalation on, a subproblem that will not fit is refined
+    and the call succeeds at a mixture of depths -- the right behaviour for a
+    library, and wrong for a measurement, because the rescue gets filed under the
+    depth that was requested. This is how a 16M forward came back as a 76.0 GiB
+    success at itr=1 when itr=1 does not actually fit: seven of its subproblems
+    had been refined a level deeper.
+    """
+    from stream_cqsa.stable_stream import local_stats_torch
+
+    torch.manual_seed(0)
+    q, k, v = (torch.randn(1, 2, 343, 32) for _ in range(3))
+    inner, calls = _refuse_over(100, local_stats_torch)
+
+    # escalation on: refines and completes
+    _, info = stream_cqsa_forward(q, k, v, itr=1, inner=inner, max_parallel=1)
+    assert info["depth_escalations"] > 0
+
+    # escalation off: the same call must report the out-of-memory instead
+    inner2, _ = _refuse_over(100, local_stats_torch)
+    with pytest.raises((torch.cuda.OutOfMemoryError, RuntimeError)):
+        stream_cqsa_forward(q, k, v, itr=1, inner=inner2, max_parallel=1,
+                            allow_escalation=False)

@@ -88,7 +88,7 @@ In normal use you never pick a depth yourself — see
 
 ### Backward
 
-| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA auto<br>acc=CPU |
+| N | SDPA | SDPA<br>mem-eff | FA-2 | CQSA itr1<br>acc=GPU | CQSA itr2<br>acc=GPU | CQSA auto<br>acc=CPU § |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | **1M** | 26<br>12.1 | 78<br>11.1 | 25<br>10.1 | *pending* | *pending* | 65<br>7.6 * |
 | **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | *pending* | *pending* | 233<br>15.2 * |
@@ -112,6 +112,16 @@ being re-measured. The retired rows are kept in
 
 The forward columns are unaffected: the forward's accumulator placement always
 worked, and its acc=GPU figures mean what they say.
+
+§ **The acc=CPU backward figures are awaiting a depth check.** The backward
+returned only gradients, so it never recorded whether it had refined a subproblem
+to a deeper level than the column claims — a row's escalation counters came from
+the *forward*, and an audit reading them could not have seen it. These figures
+are consistent with no refinement: peak device memory per subproblem holds at a
+constant 2.52× of the scheduler's own estimate across the whole range, and a
+deepened schedule would break that. But it is indirect, and the acc=GPU column is
+pending precisely because one of its cells does break the pattern. A pass that
+pins the depth and records the backward's own counters is in flight.
 
 ‡ **The 16M backward baselines are entailed, not separately measured.** All
 three are measured OOM at 8M, and their residency is linear in `N`, so 16M
@@ -153,7 +163,10 @@ device is the only lever that does.
 | **8M** | 520<br>40.3 | 966<br>40.0 | 532<br>40.3 | 796<br>51.8 | 907<br>33.3 | 846<br>**20.7** * |
 | **16M** | **OOM** | **OOM** | **OOM** | **OOM** | 3570<br>66.6 | 6228<br>**32.0** |
 
-Same units: **seconds** over **peak GiB**; **\*** as above.
+Same units: **seconds** over **peak GiB**; **\*** as above. The Stream-CQSA
+forward figures come from a single run with the decomposition depth pinned, so
+each column reports the depth it names rather than a depth the scheduler reached
+on its own; every cell recorded zero escalations.
 
 **The forward is a narrower win, and worth stating plainly.** Up to 8M every
 method here succeeds, so what Stream-CQSA buys over that range is headroom rather

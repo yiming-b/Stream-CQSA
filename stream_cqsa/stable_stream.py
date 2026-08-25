@@ -987,6 +987,7 @@ def stream_cqsa_forward(
     max_parallel: int | None = None,
     safety: float = 0.75,
     accumulate_on_gpu: bool = True,
+    allow_escalation: bool = True,
     low_memory: bool = False,
     trace: TraceRecorder | None = None,
     c: int = 7,
@@ -1476,6 +1477,17 @@ def stream_cqsa_forward(
                   # kernel -- so replacing it double counts nothing, and the
                   # children's retained pairs partition exactly the parent's.
                   depth_cap = max_depth_for(N, c)
+                  if not allow_escalation:
+                      # A fixed-depth measurement wants the out-of-memory result
+                      # itself. Refining here would answer a different question --
+                      # what a hybrid schedule costs -- and file it under the
+                      # depth that was asked for.
+                      info["depth_capped"] = True
+                      raise torch.cuda.OutOfMemoryError(
+                          f"Stream-CQSA: a subproblem at itr={task.itr} does not "
+                          f"fit and escalation is disabled (allow_escalation="
+                          f"False), so this depth genuinely does not fit."
+                      ) from exc
                   if int(task.itr) >= depth_cap:
                       info["depth_capped"] = True
                       raise torch.cuda.OutOfMemoryError(
@@ -1934,9 +1946,11 @@ def stream_cqsa_backward(
     interest_set: Sequence[int] = (0, 1, 3),
     stream_from_host: bool = False,
     accumulate_on_gpu: bool = False,
+    allow_escalation: bool = True,
     max_parallel: int | None = None,
     cpu_threads: int | None = _CPU_MERGE_THREADS_DEFAULT,
     trace: "TraceRecorder | None" = None,
+    bwd_info: dict | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Stream-CQSA exact attention backward. All of q/k/v/dout/out are
@@ -1988,6 +2002,15 @@ def stream_cqsa_backward(
         interest_set=tuple(interest_set),
     )
 
+    # The backward returns only gradients, so without this its escalations are
+    # invisible: a caller reading info from the FORWARD sees the forward's
+    # counters and concludes nothing happened. That is how an 8M backward could
+    # refine itself to a depth nobody asked for and still be recorded as the
+    # depth that was requested.
+    if bwd_info is not None:
+        bwd_info.update(itr_requested=int(itr), itr_reached=int(itr),
+                        depth_escalations=0, oom_retries=0)
+
     if host_resident:
         # Every operand must be host-resident, or the per-subproblem gather
         # fails deep inside with an opaque cross-device error. Name the
@@ -2027,7 +2050,7 @@ def stream_cqsa_backward(
                 if torch.cuda.is_available():
                     torch.cuda.synchronize(device)
                     torch.cuda.empty_cache()
-                if depth >= depth_cap:
+                if not allow_escalation or depth >= depth_cap:
                     raise torch.cuda.OutOfMemoryError(
                         f"Stream-CQSA streamed backward: itr={depth_cap} is the "
                         f"deepest decomposition N={N} admits at c={c}, and the "
@@ -2035,6 +2058,10 @@ def stream_cqsa_backward(
                         f"dominate and no depth reduces them; reduce N, H or D."
                     ) from exc
                 depth += 1
+                if bwd_info is not None:
+                    bwd_info["depth_escalations"] += 1
+                    bwd_info["itr_reached"] = depth
+                    bwd_info["oom_retries"] += 1
                 tasks_at_depth = build_tasks_cached(
                     N, depth, B=B, H=H, D=D, itemsize=q.element_size(),
                     sorted_gather=sorted_gather, c=c, interest_set=interest_set,
@@ -2122,17 +2149,24 @@ def stream_cqsa_backward(
             if torch.cuda.is_available():
                 torch.cuda.synchronize(device)
                 torch.cuda.empty_cache()
-            if int(task.itr) >= depth_cap or retries > retry_budget:
+            if not allow_escalation or int(task.itr) >= depth_cap \
+                    or retries > retry_budget:
                 raise torch.cuda.OutOfMemoryError(
                     f"Stream-CQSA backward: a subproblem at itr={task.itr} does "
                     f"not fit, and itr={depth_cap} is the deepest decomposition "
                     f"N={N} admits at c={c}. The O(N*H*D) resident terms dominate "
                     f"and no depth reduces them; offload them, or reduce N, H or D."
                 ) from exc
-            pending[0:0] = refine_task(
+            kids = refine_task(
                 task, N, B=B, H=H, D=D, itemsize=q.element_size(),
                 sorted_gather=sorted_gather, pin=True, c=c,
                 interest_set=interest_set, seg_align=0,
             )
+            if bwd_info is not None:
+                bwd_info["depth_escalations"] += 1
+                bwd_info["oom_retries"] = retries
+                bwd_info["itr_reached"] = max(bwd_info["itr_reached"],
+                                              max(int(t.itr) for t in kids))
+            pending[0:0] = kids
 
     return dq.transpose(1, 2), dk.transpose(1, 2), dv.transpose(1, 2)
