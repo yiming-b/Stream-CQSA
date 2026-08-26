@@ -58,25 +58,50 @@ GRID = "#e3e2dd"
 
 # Series style: (color slot, marker, dash). Marker+dash carry identity without
 # color, which is what survives greyscale printing.
+# Series style: (colour slot, marker, dash).
+#
+# One slot per series, assigned in the palette's fixed order and never reused.
+# The previous assignment put three series on two green steps -- flash and
+# acc=CPU both on slot 2, the two acc=GPU depths both on slot 5 -- which the
+# palette validator scores at Delta E 0.0, i.e. literally the same colour for
+# different series. Marker and dash still carry identity redundantly, for
+# greyscale print and for the ~8% of male readers with a red-green deficiency,
+# but they are no longer doing the work alone.
+#
+#   python experiments/paper/validate_palette.py "#2a78d6,#eb6834,#1baf7a,#eda100,#e87ba4,#008300"
+#   -> worst adjacent CVD Delta E 9.1 (protan), normal-vision 19.6, both above gate.
 STYLE = {
-    "sdpa":       (0, "o", (0, ())),
-    "sdpa_flash": (3, "P", (0, (1, 1))),
-    "sdpa_mem":   (1, "s", (0, (4, 2))),
-    "flash":      (2, "^", (0, (6, 2, 1, 2))),
-    "cqsa_auto":  (4, "D", (0, (3, 1, 1, 1))),
-    "cqsa_host":  (5, "v", (0, (1, 1, 3, 1))),
-    "cqsa_hostmin": (2, "*", (0, (5, 1, 1, 1, 1, 1))),
-    "cqsa_accgpu":  (5, "v", (0, (1, 1, 3, 1))),
-    "cqsa_acccpu":  (2, "*", (0, (5, 1, 1, 1))),
-    "cqsa_allgpu":  (4, "D", (0, (3, 1, 1, 1))),
+    "sdpa":             (0, "o", (0, ())),
+    "sdpa_mem":         (1, "s", (0, (4, 2))),
+    "flash":            (2, "^", (0, (6, 2, 1, 2))),
+    "cqsa_accgpu_itr1": (3, "D", (0, (3, 1, 1, 1))),
+    "cqsa_accgpu_itr2": (4, "v", (0, (1, 1, 3, 1))),
+    "cqsa_acccpu":      (5, "*", (0, (5, 1, 1, 1))),
+    # accuracy figure only -- a different chart, so the order restarts
+    "cqsa_host_itr1":   (3, "D", (0, (3, 1, 1, 1))),
+    "cqsa_host_itr2":   (4, "v", (0, (1, 1, 3, 1))),
+    "cqsa_auto":        (5, "D", (0, (3, 1, 1, 1))),
+    "cqsa_host":        (5, "v", (0, (1, 1, 3, 1))),
+    "cqsa_hostmin":     (2, "*", (0, (5, 1, 1, 1, 1, 1))),
+    "sdpa_flash":       (3, "P", (0, (1, 1))),
+    "cqsa_accgpu":      (3, "D", (0, (3, 1, 1, 1))),
+    "cqsa_allgpu":      (4, "D", (0, (3, 1, 1, 1))),
 }
 LABEL = {
     "sdpa": "SDPA", "sdpa_flash": "SDPA (flash)", "sdpa_mem": "SDPA (mem-eff.)",
-    "flash": "FlashAttention-2", "cqsa_auto": "Stream-CQSA",
-    "cqsa_host": "Stream-CQSA (streamed)",
+    "flash": "FlashAttention-2",
+    # Named as the paper's tables name them. The star on "auto" records that the
+    # depth was forced to at least 1: the planner would have declined to
+    # decompose at these lengths, and a column reporting what decomposition
+    # costs has to actually decompose.
+    "cqsa_accgpu_itr1": "Stream-CQSA  itr=1, acc=GPU",
+    "cqsa_accgpu_itr2": "Stream-CQSA  itr=2, acc=GPU",
+    "cqsa_acccpu": "Stream-CQSA  itr=auto*, acc=CPU",
+    "cqsa_host_itr1": "Stream-CQSA itr=1",
+    "cqsa_host_itr2": "Stream-CQSA itr=2",
+    "cqsa_auto": "Stream-CQSA", "cqsa_host": "Stream-CQSA (streamed)",
     "cqsa_hostmin": "Stream-CQSA (min-device)",
     "cqsa_accgpu": "Stream-CQSA acc=GPU",
-    "cqsa_acccpu": "Stream-CQSA acc=CPU",
     "cqsa_allgpu": "Stream-CQSA (all on GPU)",
 }
 # Panels default to this subset: SDPA's flash backend and the flash-attn package
@@ -101,11 +126,15 @@ _ITR_STYLE = {1: ("D", (0, (4, 1.5))),
               3: ("*", (0, (6, 1.5, 1, 1.5)))}
 _ITR_STYLE["auto"] = ("o", (0, ()))          # automatic depth: solid, the default
 for _base, _slot in (("cqsa_auto", 4), ("cqsa_host", 5), ("cqsa_hostmin", 2),
-                     ("cqsa_accgpu", 5), ("cqsa_acccpu", 2), ("cqsa_allgpu", 4)):
+                     ("cqsa_accgpu", 3), ("cqsa_acccpu", 5), ("cqsa_allgpu", 4)):
     for _i, (_mk, _dash) in _ITR_STYLE.items():
         _k = f"{_base}_itr{_i}"
-        STYLE[_k] = (_slot, _mk, _dash)
-        LABEL[_k] = f"{LABEL[_base]} itr={_i}"
+        # Do not overwrite a slot assigned explicitly above. This loop used to
+        # run last and win, which is how three plotted series ended up sharing
+        # two colours after the explicit table had already separated them.
+        if _k not in STYLE:
+            STYLE[_k] = (_slot, _mk, _dash)
+        LABEL.setdefault(_k, f"{LABEL[_base]} itr={_i}")
 
 
 def resolve_series(rows, requested):
@@ -262,45 +291,82 @@ def series_for(rows, method, dtype, direction, field):
 
 def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
                scale=1.0, capacity=None):
-    """`scale` converts the stored unit to the plotted one; `capacity` draws the
-    device's memory as a reference line.
+    """One panel.
 
-    Memory is stored in MiB and was plotted in MiB, which put the axis top at
-    1e5 and made the runs look as though they had used more than the card holds.
-    The same numbers in GiB run 0.02 to 70.4 against a 79.3 GiB device, which is
-    the comparison every OOM marker on the chart is about, so the unit is now
-    GiB and the ceiling is drawn rather than left to be inferred."""
+    `scale` converts the stored unit to the plotted one; `capacity` switches the
+    panel to the memory presentation: a linear axis from zero to the device's
+    memory, with the limit drawn.
+
+    Memory is linear here and time is logarithmic, which is not an
+    inconsistency. The question a reader brings to the memory panel is "how
+    close to the card did this get, and what fell off it" -- that is a question
+    about a fixed ceiling, and only a linear axis from zero shows a value as a
+    fraction of it. Time has no ceiling and spans seven decades, so it stays
+    logarithmic.
+
+    Out-of-memory is marked at the length that FAILED, not at the last one that
+    worked. Drawn at the last success it read as "SDPA fails at 8M" when SDPA
+    fails at 16M and 8M is its last good measurement -- the marker was one rung
+    left of the fact it was there to state. The failing point has no measured
+    value to plot against, so the marker sits on the device limit (for memory,
+    where "it asked for more than this" is exactly what happened) or at the top
+    of the panel (for time), joined to the last real point by a dotted lead-in
+    so it cannot be mistaken for a measurement.
+    """
     any_data = False
-    lo = float("inf")
+    lo, hi = float("inf"), 0.0
+    marks = []
+
     for m in methods:
         if m not in STYLE:
             continue
         xs, ys, oom_n = series_for(rows, m, dtype, direction, field)
         if not xs:
             continue
-        ys = [y * scale for y in ys]
-        lo = min(lo, min(ys)) if ys else lo
         any_data = True
+        ys = [y * scale for y in ys]
+        lo, hi = min(lo, min(ys)), max(hi, max(ys))
         ci, mk, dash = STYLE[m]
         ax.plot(xs, ys, color=SLOT[ci], marker=mk, ms=4.5, lw=1.7,
                 linestyle=dash, label=LABEL[m], zorder=3,
                 markeredgecolor="white", markeredgewidth=0.6)
         if oom_n is not None:
-            # Mark where it stopped and why. A line that just ends reads as
-            # missing data; this is the claim.
-            ax.plot([xs[-1]], [ys[-1]], marker="x", ms=9, mew=2.0,
-                    color=SLOT[ci], zorder=4, linestyle="none")
+            marks.append((oom_n, xs[-1], ys[-1], SLOT[ci]))
+
     style_axes(ax, "sequence length $N$", ylabel, title)
+
     if capacity and any_data:
-        # Every x on this panel marks a run that asked for more than this line.
+        ax.set_yscale("linear")
+        ax.set_ylim(0, capacity * 1.11)
+        ax.set_yticks([0, 20, 40, 60, 80])
         ax.axhline(capacity, color=INK3, lw=0.9, ls=(0, (5, 3)), zorder=1)
-        ax.text(0.015, capacity * 1.06, f"device limit {capacity:g} GiB",
+        ax.text(0.015, capacity * 1.01, f"device limit {capacity:g} GiB",
                 transform=ax.get_yaxis_transform(), va="bottom", ha="left",
                 color=INK3, fontsize=7)
-        # After style_axes, which is what puts the axis on a log scale: setting
-        # a limit before that leaves the bottom at a linear default and
-        # collapses the panel.
-        ax.set_ylim(bottom=lo * 0.55, top=capacity * 1.35)
+        y_fail = capacity
+    else:
+        # Log panel: park the markers just under the top of the drawn range.
+        ax.set_ylim(top=hi * 6 if hi else None)
+        y_fail = hi * 3.2 if hi else None
+
+    # Methods that fail at the same length would otherwise land on one point and
+    # hide each other -- four series share N=16M in the forward, five share 8M
+    # in the backward, and only the last drawn was visible, which read as "one
+    # method failed here". Fan them around the tick. The axis is logarithmic, so
+    # the offsets are multiplicative to keep the spacing even on screen.
+    by_n = collections.defaultdict(list)
+    for mk in marks:
+        by_n[mk[0]].append(mk)
+    for oom_n, group in by_n.items():
+        k = len(group)
+        for i, (_, x_last, y_last, colour) in enumerate(group):
+            if y_fail is None:
+                continue
+            off = oom_n * (1.052 ** (i - (k - 1) / 2)) if k > 1 else oom_n
+            ax.plot([x_last, off], [y_last, y_fail], color=colour, lw=0.9,
+                    ls=(0, (1, 2)), zorder=2, alpha=0.7)
+            ax.plot([off], [y_fail], marker="x", ms=8, mew=2.2, color=colour,
+                    zorder=5, linestyle="none", clip_on=False)
     return any_data
 
 
@@ -329,7 +395,8 @@ def fig_memory_time(rows, dtype, methods, out, meta):
     gpu = meta.get("gpu", "A100")
     fig.text(0.5, 0.008,
              f"{gpu} · B={meta.get('B',1)} H={meta.get('H',8)} D={meta.get('D',64)} · "
-             f"{'fp16' if dtype == 'float16' else 'bf16'} · causal · x = OOM",
+             f"{'fp16' if dtype == 'float16' else 'bf16'} · causal · "
+             f"\u2715 = shortest N that runs out of memory",
              ha="center", color=INK3, fontsize=7.5)
     fig.tight_layout(rect=(0, 0.02, 1, 0.94))
     save(fig, out)
@@ -447,57 +514,61 @@ def stage_rows(rows, dtype, direction, method=None):
     return [by_n[n] for n in sorted(by_n)], method
 
 
-def fig_stages(rows, dtype, direction, out, meta, method=None):
-    """Where Stream-CQSA's time goes, as a share of the work issued per length.
+STAGE_CONFIGS = [("cqsa_accgpu_itr1", "itr=1, acc=GPU"),
+                 ("cqsa_accgpu_itr2", "itr=2, acc=GPU"),
+                 ("cqsa_acccpu",      "itr=auto*, acc=CPU")]
 
-    Shares, not totals, and on a linear axis. The earlier version stacked raw
-    milliseconds on a log axis, which cannot be read: on a log scale a segment's
-    height is not proportional to its value, so the largest stage looks dominant
-    whatever the split actually is, and the four shortest lengths compressed to
-    nothing against a 10^7 ms top. Drawn as proportions the same data shows a
-    crossover the stacked version hid -- in the backward the local kernel is a
-    seventh of the work at 8K and nearly all of it by 4M.
+# Stack order, and therefore the adjacent pairs the palette was validated on.
+STAGE_ORDER = ("compute", "gather", "scatter", "h2d", "d2h", "merge")
+
+
+def stage_panel(ax, rows, dtype, direction, method, title):
+    """One configuration, one direction: stage shares against sequence length.
+
+    Shares, not totals, and on a linear axis. Stacked milliseconds on a log axis
+    cannot be read -- a segment's height is not proportional to its value there,
+    so whichever stage is largest looks dominant whatever the split is, and the
+    shortest lengths compress to nothing against a 10^7 ms top.
 
     `wait` is excluded. It measures time an event span spent queued behind
-    another stream, so it runs concurrently with the work it is stacked on top
-    of -- at 16M it lands within 0.2% of `compute` for exactly that reason. It
-    is a real cost in wall-clock terms but it is not a share of anything, and
-    including it in a proportion double-counts the concurrency.
+    another stream, so it runs concurrently with the work it would be stacked
+    on top of -- at 16M it lands within 0.2% of `compute` for that reason.
+    Including it in a proportion double-counts the concurrency.
     """
-    keep, method = stage_rows(rows, dtype, direction, method)
+    keep, _ = stage_rows(rows, dtype, direction, method)
     if not keep:
-        return False
-    ORDER = ("compute", "gather", "scatter", "h2d", "d2h", "merge")
-    seen = {k for r in keep for k in r["stage_ms"] if k != "wait"}
-    pref = [s for s in ORDER if s in seen] + sorted(seen - set(ORDER))
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                color=INK3, fontsize=8, transform=ax.transAxes)
+        return False, []
 
-    fig, ax = plt.subplots(figsize=(7.0, 3.6))
-    xs = list(range(len(keep)))
+    seen = {k for r in keep for k in r["stage_ms"] if k != "wait"}
+    pref = [st for st in STAGE_ORDER if st in seen] + sorted(seen - set(STAGE_ORDER))
     shares = []
     for r in keep:
         d = {k: v for k, v in r["stage_ms"].items() if k != "wait"}
         tot = sum(d.values()) or 1.0
         shares.append({k: 100.0 * d.get(k, 0.0) / tot for k in pref})
 
+    xs = list(range(len(keep)))
     bottom = [0.0] * len(keep)
-    for i, st in enumerate(pref):
+    for st in pref:
         vals = [sh[st] for sh in shares]
-        ax.bar(xs, vals, bottom=bottom, width=0.72,
-               color=SLOT[i % len(SLOT)], label=st, zorder=3,
-               edgecolor="white", linewidth=0.8)
+        ax.bar(xs, vals, bottom=bottom, width=0.74,
+               color=SLOT[STAGE_ORDER.index(st) % len(SLOT)], label=st,
+               zorder=3, edgecolor="white", linewidth=0.8)
         bottom = [b + v for b, v in zip(bottom, vals)]
 
-    # The kernel's share is the number the text argues from, so state it rather
-    # than leaving it to be estimated off the axis.
     for x, sh in zip(xs, shares):
         c = sh.get("compute", 0.0)
-        ax.text(x, c / 2, f"{c:.0f}", ha="center", va="center", fontsize=7,
-                color="white", zorder=4)
+        if c >= 12:                     # below this the numeral will not fit
+            ax.text(x, c / 2, f"{c:.0f}", ha="center", va="center",
+                    fontsize=6.5, color="white", zorder=4)
 
     ax.set_xticks(xs)
     ax.set_xticklabels([f"{r['N']//1024}K" if r["N"] < 1_048_576
                         else f"{r['N']//1_048_576}M" for r in keep],
-                       color=INK2, fontsize=8)
+                       color=INK2, fontsize=7, rotation=90)
     ax.set_ylim(0, 100)
     ax.set_yticks([0, 25, 50, 75, 100])
     ax.grid(True, axis="y", color=GRID, lw=0.7)
@@ -507,24 +578,53 @@ def fig_stages(rows, dtype, direction, out, meta, method=None):
     for sp in ("left", "bottom"):
         ax.spines[sp].set_color(INK3)
         ax.spines[sp].set_linewidth(0.8)
-    ax.tick_params(colors=INK2, labelsize=8)
-    ax.set_xlabel("sequence length $N$", color=INK2, fontsize=9)
-    ax.set_ylabel("share of issued work (%)", color=INK2, fontsize=9)
-    depths = sorted({(r.get("info") or {}).get("itr") for r in keep} - {None})
-    dtag = (f", itr={depths[0]}" if len(depths) == 1
-            else f", itr={depths[0]}\u2013{depths[-1]}" if depths else "")
-    ax.set_title(f"{LABEL.get(method, method)} stage breakdown \u2014 "
-                 f"{'fp16' if dtype == 'float16' else dtype}, "
-                 f"{'forward' if direction == 'fwd' else 'backward'}{dtag}",
-                 color=INK, fontsize=10, loc="left", pad=6)
-    ax.legend(frameon=False, fontsize=8, labelcolor=INK2, ncol=6,
-              loc="upper left", bbox_to_anchor=(0, -0.16))
-    fig.text(0.99, 0.02,
-             "numerals = local-kernel share; queueing behind other streams excluded",
+    ax.tick_params(colors=INK2, labelsize=7)
+    ax.set_title(title, color=INK, fontsize=9, loc="left", pad=5)
+    return True, pref
+
+
+def fig_stages(rows, dtype, out, meta):
+    """Stage breakdown for three configurations in both directions.
+
+    The grid is the point: the same decomposition is profiled at two depths on
+    the device and once with the accumulators on the host, forward and backward,
+    so the reader can see which parts of the cost follow the depth, which follow
+    the residency choice, and which follow neither. Where a configuration stops
+    short, it stopped because it ran out of memory at the next length.
+    """
+    fig, axes = plt.subplots(2, len(STAGE_CONFIGS),
+                             figsize=(3.35 * len(STAGE_CONFIGS), 5.6),
+                             squeeze=False)
+    ok = False
+    stages = []
+    for i, d in enumerate(("fwd", "bwd")):
+        for j, (method, name) in enumerate(STAGE_CONFIGS):
+            drew, pref = stage_panel(
+                axes[i][j], rows, dtype, d, method,
+                f"({chr(97 + i * len(STAGE_CONFIGS) + j)}) "
+                f"{'forward' if d == 'fwd' else 'backward'} — {name}")
+            ok |= drew
+            for st in pref:
+                if st not in stages:
+                    stages.append(st)
+        axes[i][0].set_ylabel("share of issued work (%)", color=INK2, fontsize=8.5)
+    for j in range(len(STAGE_CONFIGS)):
+        axes[1][j].set_xlabel("sequence length $N$", color=INK2, fontsize=8.5)
+
+    order = [st for st in STAGE_ORDER if st in stages]
+    handles = [plt.Rectangle((0, 0), 1, 1,
+                             color=SLOT[STAGE_ORDER.index(st) % len(SLOT)])
+               for st in order]
+    fig.legend(handles, order, loc="upper center", ncol=len(order),
+               frameon=False, fontsize=8.5, labelcolor=INK2,
+               bbox_to_anchor=(0.5, 1.005))
+    fig.text(0.99, 0.005,
+             "numerals = local-kernel share · queueing behind other streams "
+             "excluded · a panel ends where that configuration runs out of memory",
              ha="right", color=INK3, fontsize=7)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.025, 1, 0.945))
     save(fig, out)
-    return True
+    return ok
 
 
 def save(fig, out):
