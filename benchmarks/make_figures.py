@@ -209,13 +209,22 @@ def style_axes(ax, xlabel, ylabel, title=None, xscale="log"):
         ax.spines[s].set_color(INK3)
         ax.spines[s].set_linewidth(0.8)
     ax.tick_params(colors=INK2, labelsize=8, length=3, width=0.8)
-    ax.set_xlabel(xlabel, color=INK2, fontsize=9)
+    ax.set_xlabel(xlabel + ("  (log$_2$)" if xscale == "log" else "  (linear)"),
+                  color=INK2, fontsize=9)
     ax.set_ylabel(ylabel, color=INK2, fontsize=9)
     if title:
         ax.set_title(title, color=INK, fontsize=10, pad=6, loc="left")
     ax.xaxis.set_major_formatter(FuncFormatter(nfmt))
     if xscale == "log":
         ax.xaxis.set_major_locator(LogLocator(base=2, numticks=20))
+        # Twelve powers of two do not fit horizontally in a panel this narrow,
+        # and matplotlib will happily overlap them rather than say so. Slanting
+        # keeps every rung labelled; dropping every other one would hide the
+        # lengths the tables report.
+        for lbl in ax.get_xticklabels():
+            lbl.set_rotation(45)
+            lbl.set_ha("right")
+            lbl.set_rotation_mode("anchor")
     else:
         ax.set_xlim(0, 16 * 1_048_576)
         ax.set_xticks([i * 4 * 1_048_576 for i in range(5)])
@@ -439,35 +448,47 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
 
 
 def fig_memory_time(rows, dtype, methods, out, meta):
+    """Memory and time, both directions, in one row.
+
+    Four panels across rather than two-by-two. The comparisons a reader makes
+    here are between the two directions within a quantity, and between the two
+    quantities for one direction; in a row, every panel is adjacent to both, and
+    the memory pair sits together instead of being split across a fold.
+
+    The two quantities keep different x-scales -- linear for memory, whose
+    growth is linear in N, log for time, whose growth is quadratic -- so the
+    scale is named on each axis rather than left to be inferred from the ticks.
+    The label itself stays "sequence length N": the ticks carry the lengths
+    themselves, 8K through 16M, so the axis is N on a log scale, not log(N).
+    """
     dirs_present = [d for d in ("fwd", "bwd")
                     if any(r["direction"] == d and r["dtype"] == dtype for r in rows)]
     if not dirs_present:
         return False
-    fig, axes = plt.subplots(2, len(dirs_present),
-                             figsize=(4.4 * len(dirs_present), 6.4), squeeze=False)
+    panels = ([(d, "mem_alloc_peak", "peak GPU memory (GiB)", "memory")
+               for d in dirs_present] +
+              [(d, "ms", "wall-clock (ms)", "time") for d in dirs_present])
+    fig, axes = plt.subplots(1, len(panels), figsize=(3.7 * len(panels), 3.9),
+                             squeeze=False)
     name = {"fwd": "forward", "bwd": "backward"}
     ok = False
-    # Letter row-major: (a)(b) across the top, (c)(d) across the bottom. Going
-    # column-major makes the reader jump diagonally.
-    nc = len(dirs_present)
-    for j, d in enumerate(dirs_present):
-        ok |= plot_panel(axes[0][j], rows, dtype, d, "mem_alloc_peak", methods,
-                         "peak GPU memory (GiB)", f"({chr(97+j)}) {name[d]} — memory",
-                         scale=1.0 / 1024.0, capacity=meta.get("gpu_gib"))
-        ok |= plot_panel(axes[1][j], rows, dtype, d, "ms", methods,
-                         "wall-clock (ms)", f"({chr(97+nc+j)}) {name[d]} — time")
+    for j, (d, field, ylabel, kind) in enumerate(panels):
+        ok |= plot_panel(axes[0][j], rows, dtype, d, field, methods, ylabel,
+                         f"({chr(97 + j)}) {name[d]} — {kind}",
+                         scale=1.0 / 1024.0 if kind == "memory" else 1.0,
+                         capacity=meta.get("gpu_gib") if kind == "memory" else None)
     handles, labels = axes[0][0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=min(len(labels), 3),
-               frameon=False, fontsize=8.5, labelcolor=INK2,
-               bbox_to_anchor=(0.5, 1.005), handlelength=3.0)
+    fig.legend(handles, labels, loc="upper center", ncol=min(len(labels), 6),
+               frameon=False, fontsize=8, labelcolor=INK2,
+               bbox_to_anchor=(0.5, 1.02), handlelength=2.6, columnspacing=1.4)
     gpu = meta.get("gpu", "A100")
-    fig.text(0.5, 0.008,
+    fig.text(0.5, 0.005,
              f"{gpu} · B={meta.get('B',1)} H={meta.get('H',8)} D={meta.get('D',64)} · "
              f"{'fp16' if dtype == 'float16' else 'bf16'} · causal · "
              f"\u2715 = where the trend meets the device limit; "
              f"the next length tested is the one that fails",
              ha="center", color=INK3, fontsize=7.5)
-    fig.tight_layout(rect=(0, 0.02, 1, 0.94))
+    fig.tight_layout(rect=(0, 0.03, 1, 0.88))
     save(fig, out)
     return ok
 
@@ -611,6 +632,24 @@ def stage_panel(ax, rows, dtype, direction, method, title):
                 color=INK3, fontsize=8, transform=ax.transAxes)
         return False, []
 
+    # Lengths this configuration cannot run. Without them a panel simply stops,
+    # and three panels of different widths read as three different experiments
+    # rather than as one experiment in which two configurations died. Every
+    # panel now spans the full sweep and the shortfall is drawn.
+    #
+    # The first failure is measured. The ones past it are not, and are marked
+    # differently: peak memory increases monotonically with N, so a
+    # configuration that cannot run at 8M cannot run at 16M either -- sound, but
+    # an inference, and it should not be dressed as a measurement.
+    all_n = sorted({r["N"] for r in rows
+                    if r["dtype"] == dtype and r["direction"] == direction
+                    and r["status"] == "ok"})
+    measured_oom = {r["N"] for r in rows
+                    if r["method"] == method and r["dtype"] == dtype
+                    and r["direction"] == direction and r["status"] == "oom"}
+    last_ok = keep[-1]["N"]
+    failed = [n for n in all_n if n > last_ok]
+
     seen = {k for r in keep for k in r["stage_ms"] if k != "wait"}
     pref = [st for st in STAGE_ORDER if st in seen] + sorted(seen - set(STAGE_ORDER))
     shares = []
@@ -634,10 +673,20 @@ def stage_panel(ax, rows, dtype, direction, method, title):
             ax.text(x, c / 2, f"{c:.0f}", ha="center", va="center",
                     fontsize=6.5, color="white", zorder=4)
 
-    ax.set_xticks(xs)
-    ax.set_xticklabels([f"{r['N']//1024}K" if r["N"] < 1_048_576
-                        else f"{r['N']//1_048_576}M" for r in keep],
+    for i, n in enumerate(failed):
+        x = len(keep) + i
+        measured = n in measured_oom
+        ax.bar([x], [100], width=0.74, facecolor="none", hatch="////",
+               edgecolor=INK3, linewidth=0.9 if measured else 0.8,
+               linestyle="solid" if measured else (0, (2.5, 1.8)), zorder=3)
+        ax.text(x, 50, "OOM" if measured else "OOM (implied)", rotation=90,
+                ha="center", va="center", fontsize=6.5, color=INK2, zorder=4)
+
+    xs_all = list(range(len(keep) + len(failed)))
+    ax.set_xticks(xs_all)
+    ax.set_xticklabels([nfmt(r["N"]) for r in keep] + [nfmt(n) for n in failed],
                        color=INK2, fontsize=7, rotation=90)
+    ax.set_xlim(-0.7, len(xs_all) - 0.3)
     ax.set_ylim(0, 100)
     ax.set_yticks([0, 25, 50, 75, 100])
     ax.grid(True, axis="y", color=GRID, lw=0.7)
@@ -689,7 +738,8 @@ def fig_stages(rows, dtype, out, meta):
                bbox_to_anchor=(0.5, 1.005))
     fig.text(0.99, 0.005,
              "numerals = local-kernel share · queueing behind other streams "
-             "excluded · a panel ends where that configuration runs out of memory",
+             "excluded · hatched = will not run; solid outline measured, dashed "
+             "implied by monotonicity in $N$",
              ha="right", color=INK3, fontsize=7)
     fig.tight_layout(rect=(0, 0.025, 1, 0.945))
     save(fig, out)
