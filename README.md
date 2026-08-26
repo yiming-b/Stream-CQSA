@@ -76,6 +76,14 @@ report the undecomposed kernel rather than Stream-CQSA. The runs behind this
 column therefore start at `itr=1`, so it measures a decomposition at every `N`
 and stays comparable with the fixed-depth columns beside it.
 
+A cell carries a star only where a monolithic call would in fact have fitted,
+which is decidable from the baselines: FlashAttention-2 *is* a monolithic call,
+so wherever it completes the planner would have declined to decompose, and
+wherever it runs out of memory the planner must decompose regardless. This
+differs by direction at 8M, where the baselines complete in the forward and fail
+in the backward — so the forced `itr=1` departs from `auto` in the forward and
+coincides with it in the backward, and only the forward cell is starred.
+
 Above that floor, **`auto` means the smallest depth that fits the memory
 budget** — the shallowest decomposition is also the fastest, so there is no
 reason to go deeper than feasibility requires. That is `itr=1` at every `N` here
@@ -128,7 +136,7 @@ story — a flat **2.50×** less device memory than acc=GPU at the same depth, f
 | **1M** | 26<br>12.1 | 78<br>11.1 | 25<br>10.1 | 56<br>13.6 | 66<br>10.4 | 66<br>**7.6** * |
 | **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | 216<br>27.3 | 256<br>20.9 | 235<br>**15.2** * |
 | **4M** | 429<br>48.3 | 15421<br>44.3 | 407<br>40.3 | 847<br>54.5 | 983<br>41.7 | 885<br>**30.4** * |
-| **8M** | **OOM** | **OOM** | **OOM** | **OOM** | **OOM** | 3437<br>**60.8** * |
+| **8M** | **OOM** | **OOM** | **OOM** | **OOM** | **OOM** | 3437<br>**60.8** |
 | **16M** | *not run* ‡ | *not run* ‡ | *not run* ‡ | **OOM** | **OOM** | 15847<br>**70.4** |
 
 Same units and marks as above.
