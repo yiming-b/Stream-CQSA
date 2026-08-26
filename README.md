@@ -283,6 +283,8 @@ notebooks/
   reference_kernels_demo.ipynb   how the decomposition works, from first principles
   tutorial_stream_cqsa.ipynb     production API, profiling, simulating a smaller card
   accuracy_demo.ipynb            accuracy vs FlashAttention-2 and SDPA, fp16/bf16
+  paper_figures.ipynb            every figure below, rebuilt with the selection
+                                 rules and their failure modes spelled out
 benchmarks/             experiment harness, report and figure generators
 results/paper/          raw JSONL backing every published number
 docs/
@@ -688,8 +690,11 @@ saved outputs always come from running the code rather than from editing cells.
 Also: [`examples/quickstart.py`](examples/quickstart.py),
 [`notebooks/tutorial_stream_cqsa.ipynb`](notebooks/tutorial_stream_cqsa.ipynb)
 (usage, profiling, and simulating a smaller card with
-`torch.cuda.set_per_process_memory_fraction`), and
-[`notebooks/accuracy_demo.ipynb`](notebooks/accuracy_demo.ipynb).
+`torch.cuda.set_per_process_memory_fraction`),
+[`notebooks/accuracy_demo.ipynb`](notebooks/accuracy_demo.ipynb), and
+[`notebooks/paper_figures.ipynb`](notebooks/paper_figures.ipynb), which rebuilds
+every figure on this page from `results/` and checks its own output against the
+published tables.
 
 ### Why it does not overflow
 

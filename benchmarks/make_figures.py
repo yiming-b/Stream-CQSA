@@ -260,14 +260,26 @@ def series_for(rows, method, dtype, direction, field):
     return xs, ys, oom_n
 
 
-def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title):
+def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
+               scale=1.0, capacity=None):
+    """`scale` converts the stored unit to the plotted one; `capacity` draws the
+    device's memory as a reference line.
+
+    Memory is stored in MiB and was plotted in MiB, which put the axis top at
+    1e5 and made the runs look as though they had used more than the card holds.
+    The same numbers in GiB run 0.02 to 70.4 against a 79.3 GiB device, which is
+    the comparison every OOM marker on the chart is about, so the unit is now
+    GiB and the ceiling is drawn rather than left to be inferred."""
     any_data = False
+    lo = float("inf")
     for m in methods:
         if m not in STYLE:
             continue
         xs, ys, oom_n = series_for(rows, m, dtype, direction, field)
         if not xs:
             continue
+        ys = [y * scale for y in ys]
+        lo = min(lo, min(ys)) if ys else lo
         any_data = True
         ci, mk, dash = STYLE[m]
         ax.plot(xs, ys, color=SLOT[ci], marker=mk, ms=4.5, lw=1.7,
@@ -279,6 +291,16 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title):
             ax.plot([xs[-1]], [ys[-1]], marker="x", ms=9, mew=2.0,
                     color=SLOT[ci], zorder=4, linestyle="none")
     style_axes(ax, "sequence length $N$", ylabel, title)
+    if capacity and any_data:
+        # Every x on this panel marks a run that asked for more than this line.
+        ax.axhline(capacity, color=INK3, lw=0.9, ls=(0, (5, 3)), zorder=1)
+        ax.text(0.015, capacity * 1.06, f"device limit {capacity:g} GiB",
+                transform=ax.get_yaxis_transform(), va="bottom", ha="left",
+                color=INK3, fontsize=7)
+        # After style_axes, which is what puts the axis on a log scale: setting
+        # a limit before that leaves the bottom at a linear default and
+        # collapses the panel.
+        ax.set_ylim(bottom=lo * 0.55, top=capacity * 1.35)
     return any_data
 
 
@@ -296,7 +318,8 @@ def fig_memory_time(rows, dtype, methods, out, meta):
     nc = len(dirs_present)
     for j, d in enumerate(dirs_present):
         ok |= plot_panel(axes[0][j], rows, dtype, d, "mem_alloc_peak", methods,
-                         "peak GPU memory (MiB)", f"({chr(97+j)}) {name[d]} — memory")
+                         "peak GPU memory (GiB)", f"({chr(97+j)}) {name[d]} — memory",
+                         scale=1.0 / 1024.0, capacity=meta.get("gpu_gib"))
         ok |= plot_panel(axes[1][j], rows, dtype, d, "ms", methods,
                          "wall-clock (ms)", f"({chr(97+nc+j)}) {name[d]} — time")
     handles, labels = axes[0][0].get_legend_handles_labels()
