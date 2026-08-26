@@ -129,14 +129,14 @@ story — a flat **2.50×** less device memory than acc=GPU at the same depth, f
 | **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | 216<br>27.3 | 256<br>20.9 | 235<br>**15.2** * |
 | **4M** | 429<br>48.3 | 15421<br>44.3 | 407<br>40.3 | 847<br>54.5 | 983<br>41.7 | 885<br>**30.4** * |
 | **8M** | **OOM** | **OOM** | **OOM** | **OOM** | **OOM** | 3437<br>**60.8** * |
-| **16M** | *not run* ‡ | *not run* ‡ | *not run* ‡ | **OOM** | **OOM** | 18890<br>**48.5** |
+| **16M** | *not run* ‡ | *not run* ‡ | *not run* ‡ | **OOM** | **OOM** | 15847<br>**70.4** |
 
 Same units and marks as above.
 
 **This is where the method pays off, and the 8M row is the whole argument.**
 Every baseline is out of memory there — and so is Stream-CQSA with the fp32
 gradient accumulators on the device, at *both* depths. Only acc=CPU finishes, in
-60.8 GiB, and it goes on to complete 16M in **48.5 GiB**.
+60.8 GiB, and it goes on to complete 16M in **70.4 GiB** at `itr=2`.
 
 The reason is structural. The backward's `dQ`, `dK` and `dV` are three fp32
 `[B, N, H, D]` buffers, **12 bytes per element** of O(N) device residency that no
@@ -148,6 +148,17 @@ in time.
 
 Below the boundary the trade is the ordinary one: at 4M acc=CPU does the backward
 in 30.4 GiB against FlashAttention-2's 40.3 — **0.76×** — for **2.2×** the time.
+
+**The depth knob behaves differently in the two directions at 16M**, which is
+worth reading off the two tables together. In the forward, `itr=2` and `itr=3`
+both peak at 32.0 GiB and `itr=3` is simply 1.6× slower — depth has stopped
+buying anything, because peak has reached the floor residency sets. In the
+backward it has not: `itr=2` costs 15847 s at 70.4 GiB and `itr=3` costs 18890 s
+at **48.5 GiB**, so a third level still trades 19% more time for 31% less memory.
+The backward's in-flight working set is larger relative to its floor, so the knob
+keeps working there after it has saturated in the forward. Both cells are
+reported; the table gives the smallest depth that fits, and `itr=3` remains
+available where 70.4 GiB is too close to the edge.
 
 One incidental finding worth flagging: PyTorch's **memory-efficient SDPA backend
 is a severe outlier in the backward** — 15 421 s at 4M against FlashAttention-2's
