@@ -275,6 +275,16 @@ def run_method(key, q, k, v, dout, *, causal, scale, direction, itr, trace_on):
                                                stream_cqsa_backward, TraceRecorder)
         host = METHODS[key].residency == "host"
         kw = dict(itr=itr, causal=causal)
+        # A column labelled itr=1 must report what itr=1 costs, including when
+        # itr=1 does not fit. Two separate mechanisms would otherwise rescue it
+        # and file the rescue under the requested depth: the library refines a
+        # subproblem that will not fit, and the runner retries the whole backward
+        # a level deeper. Both are the right behaviour for a library and wrong for
+        # a measurement, so a fixed depth turns both off and an out-of-memory
+        # result is reported as one.
+        fixed_depth = str(itr) != "auto"
+        if fixed_depth:
+            kw["allow_escalation"] = False
         if host:
             kw["stream_from_host"] = True
         if key.startswith(("cqsa_hostmin", "cqsa_acccpu")):
@@ -324,23 +334,36 @@ def run_method(key, q, k, v, dout, *, causal, scale, direction, itr, trace_on):
         # reported in info["itr"]. Passing the string through would make the
         # backward parse "auto" as an integer.
         kw["itr"] = int(info["itr"])
-        # `low_memory` is a FORWARD-only flag: the streamed backward already
-        # keeps dQ/dK/dV on the host unconditionally, so there is nothing for it
-        # to move and stream_cqsa_backward does not accept it. Passing kw through
-        # verbatim raises TypeError and would have turned every acc=CPU backward
-        # row into an "error" rather than a measurement.
+        # `low_memory` is the forward's spelling of accumulate_on_gpu=False, and
+        # the backward has its own parameter for the same choice, so translate
+        # rather than drop.
+        #
+        # This used to drop it, because the streamed backward kept dQ/dK/dV on
+        # the host unconditionally and there was nothing to move. That made the
+        # acc=GPU and acc=CPU backward columns the SAME measurement -- both host
+        # accumulating -- which is why they agreed to within run-to-run noise at
+        # every N. The backward now places its three fp32 [B,N,H,D] buffers where
+        # it is told, so the columns differ by what their names say: on the device
+        # they cost 12 bytes per element that no depth of decomposition reduces.
         bkw = {k2: v2 for k2, v2 in kw.items() if k2 != "low_memory"}
+        bkw["accumulate_on_gpu"] = not kw.get("low_memory", False)
         # The backward escalates INDEPENDENTLY of the forward. It carries dO and
         # three gradient tensors on top of what the forward held, so a depth that
         # fits the forward routinely does not fit the backward. This is safe
         # because `lse` is the *global* log-sum-exp: it does not depend on how
         # either pass was decomposed, so the two may run at different depths.
         depth = int(info["itr"]); esc = []
-        for _ in range(5):
+        for _ in range(1 if fixed_depth else 5):
             tr2 = TraceRecorder(enabled=trace_on)
             try:
+                binfo = {}
                 g = stream_cqsa_backward(q, k, v, dout, o16, lse, trace=tr2,
+                                         bwd_info=binfo,
                                          **{**bkw, "itr": depth})
+                # The backward's own counters, not the forward's. Without these
+                # a silent refinement inside the backward is recorded as the
+                # depth that was asked for.
+                meta.update({f"bwd_{k3}": v3 for k3, v3 in binfo.items()})
                 meta["itr_bwd"] = depth
                 meta["itr_bwd_escalations"] = esc
                 return g, (tr2.stage_totals_ms() if trace_on else {}), meta

@@ -141,4 +141,4 @@ One ladder N ∈ {8K, 16K, 32K, 64K, 128K, 256K, 512K, 1M, 2M, 4M, 8M, 16M}, bot
 
 **Warm-up.** The main sweep used `--warmup 0`, correct where one call takes minutes but contaminating at small N, where the first call of each method carries CUDA context and kernel load (FlashAttention read 12,090 ms at N=8192 against a true 0.73 ms). The `rewarm` run re-measured N ≤ 256K with `--warmup 2 --reps 3` and supersedes those rows (later run wins on a duplicate key).
 
-**Figures** are generated from the same data by `benchmarks/make_figures.py` into `docs/figures/`.
+**Figures** are generated from the same data by `benchmarks/make_figures.py` into `docs/figures/`. The stage-breakdown figure plots each stage's *share* of the work issued at a given length rather than raw milliseconds, and excludes the queued-behind-another-stream time described above: that time runs concurrently with the stage it would be charged to, so including it in a proportion double-counts the concurrency instead of dividing the work.

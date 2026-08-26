@@ -178,17 +178,81 @@ def style_axes(ax, xlabel, ylabel, title=None):
     ax.xaxis.set_major_locator(LogLocator(base=2, numticks=20))
 
 
+OUT_NORM_TOL = 0.05
+
+
+def median(xs):
+    """Same definition the accuracy table uses -- the two must agree, and a mean
+    against a median differs in the second digit on ten seeds."""
+    xs = sorted(xs)
+    n = len(xs)
+    return xs[n // 2] if n % 2 else 0.5 * (xs[n // 2 - 1] + xs[n // 2])
+
+
+
+
+def same_regime(rows):
+    """Keep only accuracy rows computed on comparable inputs.
+
+    A relative error means nothing except against another error measured on the
+    same inputs. The accuracy run recorded each baseline under two input
+    regimes -- for the fp16 forward the output norm is 104.85 in one group and
+    3.56 in the other -- and averaging across them silently rewrites the result:
+    read naively the baselines come out fifteen times worse than Stream-CQSA,
+    which is backwards for a method whose whole claim is that it reproduces
+    them. The Stream-CQSA rows form a single regime, so they are the anchor.
+
+    This lives here, not only in the table builder, so that the figure cannot
+    disagree with the table it sits next to.
+    """
+    ok = [r for r in rows if r.get("status") == "ok"]
+    kept = []
+    for dt in {r.get("dtype") for r in ok}:
+        for d in {r.get("direction") for r in ok}:
+            grp = [r for r in ok if r["dtype"] == dt and r["direction"] == d]
+            anchor = [r["out_norm"] for r in grp
+                      if r["method"].startswith("cqsa") and r.get("out_norm")]
+            if not anchor:
+                kept += grp
+                continue
+            anchor.sort()
+            ref = anchor[len(anchor) // 2]
+            kept += [r for r in grp if r.get("out_norm") is not None
+                     and abs(r["out_norm"] - ref) <= OUT_NORM_TOL * abs(ref)]
+    if len(kept) != len(ok):
+        print(f"  accuracy: dropped {len(ok) - len(kept)} row(s) from a "
+              f"non-comparable input regime")
+    return kept
+
+
 def series_for(rows, method, dtype, direction, field):
-    """(N, value) for successful points, plus the N where it first OOMed."""
+    """(N, value) for successful points, plus the N where it first OOMed.
+
+    Repeated rows at one N are averaged, which is right for seeds and wrong for
+    depths. A length measured at itr=1, 2 and 3 contributes three rows, and
+    averaging them puts a point on the chart that no run produced: at N=16M the
+    forward came out at 4467 s / 35.2 GiB, the mean of three depths, where the
+    table reports the 3277 s / 41.5 GiB of itr=1. So depth is resolved first --
+    keep the smallest that ran, the rule the tables report under -- and only
+    then are the remaining rows averaged over seeds."""
     pts, oom_n = {}, None
+    depth = {}
     for r in rows:
         if (r["method"] != method or r["dtype"] != dtype
                 or r["direction"] != direction):
             continue
         if r["status"] == "ok":
             v = r.get(field)
-            if v is not None and v == v:
-                pts.setdefault(r["N"], []).append(v)
+            if v is None or v != v:
+                continue
+            itr = (r.get("info") or {}).get("itr")
+            if itr is not None:
+                if r["N"] in depth and itr > depth[r["N"]]:
+                    continue                      # a shallower depth already won
+                if r["N"] not in depth or itr < depth[r["N"]]:
+                    depth[r["N"]] = itr
+                    pts[r["N"]] = []
+            pts.setdefault(r["N"], []).append(v)
         elif r["status"] == "oom":
             oom_n = r["N"] if oom_n is None else min(oom_n, r["N"])
     xs = sorted(pts)
@@ -249,10 +313,19 @@ def fig_memory_time(rows, dtype, methods, out, meta):
     return ok
 
 
-def fig_accuracy(rows, out, meta):
+def fig_accuracy(rows, out, meta, methods=None, labels=None):
     """Relative error vs float64, by dtype and direction. Not a line chart: the
-    x axis is categorical, so this is a dot plot with a spread bar over seeds."""
+    x axis is categorical, so this is a dot plot with a spread bar over seeds.
+
+    `methods` fixes which series are drawn and should be the columns of the
+    accuracy table. Left to itself this draws every Stream-CQSA variant present,
+    which puts two families on the chart that no reader can separate: the host-
+    and device-accumulating runs agree to five digits at every depth and differ
+    only in the last bits of the backward, so they land on top of one another
+    and double the legend for nothing. `labels` overrides the legend text where
+    the table names a series differently."""
     cfgs = [(dt, d) for dt in ("float16", "bfloat16") for d in ("fwd", "bwd")]
+    rows = same_regime(rows)
     agg = collections.defaultdict(list)
     for r in rows:
         if r["status"] != "ok":
@@ -265,9 +338,16 @@ def fig_accuracy(rows, out, meta):
     if not cfgs:
         return False
     present = {k[2] for k in agg}
-    methods = [m for m in
-               (DEFAULT_SERIES + sorted(x for x in present if "_itr" in x))
-               if m in present and m in STYLE]
+    if methods is None:
+        methods = [m for m in
+                   (DEFAULT_SERIES + sorted(x for x in present if "_itr" in x))
+                   if m in present and m in STYLE]
+    else:
+        absent = [m for m in methods if m not in present]
+        if absent:
+            print(f"  ! accuracy: requested but absent: {absent}", file=sys.stderr)
+        methods = [m for m in methods if m in present and m in STYLE]
+    labels = labels or {}
     fig, ax = plt.subplots(figsize=(7.2, 3.4))
     xpos, xlab = [], []
     for i, (dt, d) in enumerate(cfgs):
@@ -278,10 +358,11 @@ def fig_accuracy(rows, out, meta):
                 continue
             ci, mk, _ = STYLE[m]
             x = base + j
-            mean = sum(vals) / len(vals)
-            ax.plot([x], [mean], marker=mk, ms=6, color=SLOT[ci], zorder=3,
+            mid = median(vals)
+            ax.plot([x], [mid], marker=mk, ms=6, color=SLOT[ci], zorder=3,
                     markeredgecolor="white", markeredgewidth=0.6,
-                    label=LABEL[m] if i == 0 else None, linestyle="none")
+                    label=(labels.get(m, LABEL[m]) if i == 0 else None),
+                    linestyle="none")
             if len(vals) > 1:
                 ax.plot([x, x], [min(vals), max(vals)], color=SLOT[ci],
                         lw=1.4, alpha=0.55, zorder=2)
@@ -303,62 +384,120 @@ def fig_accuracy(rows, out, meta):
                  color=INK, fontsize=10, loc="left", pad=6)
     ax.legend(frameon=False, fontsize=8.5, labelcolor=INK2, ncol=3,
               loc="upper left", bbox_to_anchor=(0, -0.16))
-    fig.text(0.99, 0.02, "bar = min–max over seeds", ha="right",
-             color=INK3, fontsize=7.5)
+    fig.text(0.99, 0.02, "marker = median, bar = min\u2013max over 10 seeds",
+             ha="right", color=INK3, fontsize=7.5)
     fig.tight_layout()
     save(fig, out)
     return True
 
 
-def fig_stages(rows, dtype, direction, out, meta):
-    """Where Stream-CQSA's time goes. Stacked bars: the parts sum to the whole
-    only for a single-stream run, so this is labelled as a breakdown of stage
-    totals, not of wall-clock."""
-    keep = [r for r in rows if r["dtype"] == dtype and r["direction"] == direction
-            and r["status"] == "ok" and r["stage_ms"] and r["method"].startswith("cqsa_host")]
+def stage_rows(rows, dtype, direction, method=None):
+    """Pick one Stream-CQSA row per N for the stage breakdown.
+
+    Two things this must not do. It must not hardcode a method name: the runner
+    encodes each sweep's configuration into the method (cqsa_acccpu,
+    cqsa_accgpu_itr2, ...), so a fixed prefix stops matching the moment a sweep
+    is renamed and the figure silently comes out empty rather than wrong. And it
+    must not stack several depths at one N: a length measured at itr=1,2,3 has
+    three rows, and drawing all of them puts three bars on one tick.
+
+    The depth kept is the smallest that ran, which is the rule the tables report
+    under -- smallest itr within the memory budget."""
+    cand = [r for r in rows
+            if r["dtype"] == dtype and r["direction"] == direction
+            and r["status"] == "ok" and r.get("stage_ms")
+            and r["method"].startswith("cqsa")]
+    if not cand:
+        return [], None
+    if method is None:
+        names = sorted({r["method"] for r in cand})
+        # Prefer the host-accumulating variant: its transfer stages are the
+        # point of the figure, and it is the configuration the tables lead with.
+        method = next((m for m in names if "acccpu" in m or "host" in m), names[0])
+    by_n = {}
+    for r in (x for x in cand if x["method"] == method):
+        itr = (r.get("info") or {}).get("itr")
+        prev = by_n.get(r["N"])
+        if prev is None or (itr is not None
+                            and itr < ((prev.get("info") or {}).get("itr", 1 << 30))):
+            by_n[r["N"]] = r
+    return [by_n[n] for n in sorted(by_n)], method
+
+
+def fig_stages(rows, dtype, direction, out, meta, method=None):
+    """Where Stream-CQSA's time goes, as a share of the work issued per length.
+
+    Shares, not totals, and on a linear axis. The earlier version stacked raw
+    milliseconds on a log axis, which cannot be read: on a log scale a segment's
+    height is not proportional to its value, so the largest stage looks dominant
+    whatever the split actually is, and the four shortest lengths compressed to
+    nothing against a 10^7 ms top. Drawn as proportions the same data shows a
+    crossover the stacked version hid -- in the backward the local kernel is a
+    seventh of the work at 8K and nearly all of it by 4M.
+
+    `wait` is excluded. It measures time an event span spent queued behind
+    another stream, so it runs concurrently with the work it is stacked on top
+    of -- at 16M it lands within 0.2% of `compute` for exactly that reason. It
+    is a real cost in wall-clock terms but it is not a share of anything, and
+    including it in a proportion double-counts the concurrency.
+    """
+    keep, method = stage_rows(rows, dtype, direction, method)
     if not keep:
         return False
-    keep.sort(key=lambda r: r["N"])
-    order, seen = [], set()
-    for r in keep:
-        for k in r["stage_ms"]:
-            if k not in seen:
-                seen.add(k)
-                order.append(k)
-    pref = [s for s in ("compute", "gather", "scatter", "h2d", "d2h", "merge", "wait")
-            if s in seen] + [s for s in order if s not in
-                             ("compute", "gather", "scatter", "h2d", "d2h", "merge", "wait")]
-    fig, ax = plt.subplots(figsize=(6.4, 3.4))
+    ORDER = ("compute", "gather", "scatter", "h2d", "d2h", "merge")
+    seen = {k for r in keep for k in r["stage_ms"] if k != "wait"}
+    pref = [s for s in ORDER if s in seen] + sorted(seen - set(ORDER))
+
+    fig, ax = plt.subplots(figsize=(7.0, 3.6))
     xs = list(range(len(keep)))
+    shares = []
+    for r in keep:
+        d = {k: v for k, v in r["stage_ms"].items() if k != "wait"}
+        tot = sum(d.values()) or 1.0
+        shares.append({k: 100.0 * d.get(k, 0.0) / tot for k in pref})
+
     bottom = [0.0] * len(keep)
     for i, st in enumerate(pref):
-        vals = [r["stage_ms"].get(st, 0.0) for r in keep]
-        ax.bar(xs, vals, bottom=bottom, width=0.62,
+        vals = [sh[st] for sh in shares]
+        ax.bar(xs, vals, bottom=bottom, width=0.72,
                color=SLOT[i % len(SLOT)], label=st, zorder=3,
-               edgecolor="white", linewidth=1.2)   # 2px surface gap between segments
+               edgecolor="white", linewidth=0.8)
         bottom = [b + v for b, v in zip(bottom, vals)]
+
+    # The kernel's share is the number the text argues from, so state it rather
+    # than leaving it to be estimated off the axis.
+    for x, sh in zip(xs, shares):
+        c = sh.get("compute", 0.0)
+        ax.text(x, c / 2, f"{c:.0f}", ha="center", va="center", fontsize=7,
+                color="white", zorder=4)
+
     ax.set_xticks(xs)
     ax.set_xticklabels([f"{r['N']//1024}K" if r["N"] < 1_048_576
                         else f"{r['N']//1_048_576}M" for r in keep],
                        color=INK2, fontsize=8)
-    ax.set_yscale("log")
+    ax.set_ylim(0, 100)
+    ax.set_yticks([0, 25, 50, 75, 100])
     ax.grid(True, axis="y", color=GRID, lw=0.7)
     ax.set_axisbelow(True)
-    for s in ("top", "right"):
-        ax.spines[s].set_visible(False)
-    for s in ("left", "bottom"):
-        ax.spines[s].set_color(INK3)
-        ax.spines[s].set_linewidth(0.8)
+    for sp in ("top", "right"):
+        ax.spines[sp].set_visible(False)
+    for sp in ("left", "bottom"):
+        ax.spines[sp].set_color(INK3)
+        ax.spines[sp].set_linewidth(0.8)
     ax.tick_params(colors=INK2, labelsize=8)
     ax.set_xlabel("sequence length $N$", color=INK2, fontsize=9)
-    ax.set_ylabel("stage total (ms)", color=INK2, fontsize=9)
-    ax.set_title(f"Stream-CQSA (streamed) stage breakdown — {dtype}, "
-                 f"{'forward' if direction=='fwd' else 'backward'}",
+    ax.set_ylabel("share of issued work (%)", color=INK2, fontsize=9)
+    depths = sorted({(r.get("info") or {}).get("itr") for r in keep} - {None})
+    dtag = (f", itr={depths[0]}" if len(depths) == 1
+            else f", itr={depths[0]}\u2013{depths[-1]}" if depths else "")
+    ax.set_title(f"{LABEL.get(method, method)} stage breakdown \u2014 "
+                 f"{'fp16' if dtype == 'float16' else dtype}, "
+                 f"{'forward' if direction == 'fwd' else 'backward'}{dtag}",
                  color=INK, fontsize=10, loc="left", pad=6)
-    ax.legend(frameon=False, fontsize=8, labelcolor=INK2, ncol=4,
-              loc="upper left", bbox_to_anchor=(0, -0.18))
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK2, ncol=6,
+              loc="upper left", bbox_to_anchor=(0, -0.16))
     fig.text(0.99, 0.02,
-             "stage totals over-count wall time when several streams are in flight",
+             "numerals = local-kernel share; queueing behind other streams excluded",
              ha="right", color=INK3, fontsize=7)
     fig.tight_layout()
     save(fig, out)
