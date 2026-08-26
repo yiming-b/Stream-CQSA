@@ -355,7 +355,25 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
                 linestyle=dash, label=LABEL[m], zorder=3,
                 markeredgecolor="white", markeredgewidth=0.6)
         if oom_n is not None:
-            marks.append((oom_n, xs[-1], ys[-1], SLOT[ci]))
+            # On the memory panel, continue the measured trend to the device
+            # limit and mark where it crosses. Peak memory is linear in N, so
+            # the continuation is the line the data is already on, and the
+            # crossing lands below the next length tested in every case here
+            # -- SDPA's forward reaches the limit at 15.8M and the run at 16M
+            # is the one that died. The failure stops being an annotation and
+            # becomes something the reader can see coming.
+            cross = None
+            if capacity and len(xs) >= 2:
+                slope = ((ys[-1] - ys[-2]) / (xs[-1] - xs[-2])
+                         if xs[-1] != xs[-2] else 0.0)
+                if slope > 0:
+                    xc = xs[-1] + (capacity - ys[-1]) / slope
+                    # Only when the projection actually explains this failure:
+                    # past the last measurement and no later than the length
+                    # that failed.
+                    if xs[-1] < xc <= oom_n:
+                        cross = xc
+            marks.append((oom_n, xs[-1], ys[-1], SLOT[ci], cross))
 
         # Where the resolved depth changes, say so. "auto" means the smallest
         # depth that fits, so it steps up when the previous one stops fitting --
@@ -389,28 +407,33 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
         ax.set_ylim(top=hi * 6 if hi else None)
         y_fail = hi * 3.2 if hi else None
 
-    # Methods that fail at the same length would otherwise land on one point and
-    # hide each other -- four series share N=16M in the forward, five share 8M
-    # in the backward, and only the last drawn was visible, which read as "one
-    # method failed here". Fan them around the tick. The axis is logarithmic, so
-    # the offsets are multiplicative to keep the spacing even on screen.
+    # Where a projection is available each curve crosses the limit at its own
+    # slope, so the marks separate themselves. Where there is none -- the time
+    # panel, which has no ceiling to cross -- methods failing at the same length
+    # would land on one point and hide each other (four series share N=16M in
+    # the forward, five share 8M in the backward), so those are fanned around
+    # the tick. On a log axis the offsets are multiplicative to keep the
+    # spacing even on screen.
     by_n = collections.defaultdict(list)
     for mk in marks:
-        by_n[mk[0]].append(mk)
+        by_n[mk[0] if mk[4] is None else None].append(mk)
+
     for oom_n, group in by_n.items():
         k = len(group)
-        for i, (_, x_last, y_last, colour) in enumerate(group):
+        for i, (n_fail, x_last, y_last, colour, cross) in enumerate(group):
             if y_fail is None:
                 continue
-            if k == 1:
-                off = oom_n
-            elif capacity:          # linear x: an additive nudge, ~1.4% of span
-                off = oom_n + (i - (k - 1) / 2) * 0.23e6
-            else:                   # log x: multiplicative, so spacing is even
-                off = oom_n * (1.052 ** (i - (k - 1) / 2))
-            ax.plot([x_last, off], [y_last, y_fail], color=colour, lw=0.9,
+            if cross is not None:
+                x_mark = cross
+            elif k == 1:
+                x_mark = n_fail
+            elif capacity:
+                x_mark = n_fail + (i - (k - 1) / 2) * 0.23e6
+            else:
+                x_mark = n_fail * (1.052 ** (i - (k - 1) / 2))
+            ax.plot([x_last, x_mark], [y_last, y_fail], color=colour, lw=0.9,
                     ls=(0, (1, 2)), zorder=2, alpha=0.7)
-            ax.plot([off], [y_fail], marker="x", ms=8, mew=2.2, color=colour,
+            ax.plot([x_mark], [y_fail], marker="x", ms=8, mew=2.2, color=colour,
                     zorder=5, linestyle="none", clip_on=False)
     return any_data
 
@@ -441,7 +464,8 @@ def fig_memory_time(rows, dtype, methods, out, meta):
     fig.text(0.5, 0.008,
              f"{gpu} · B={meta.get('B',1)} H={meta.get('H',8)} D={meta.get('D',64)} · "
              f"{'fp16' if dtype == 'float16' else 'bf16'} · causal · "
-             f"\u2715 = shortest N that runs out of memory",
+             f"\u2715 = where the trend meets the device limit; "
+             f"the next length tested is the one that fails",
              ha="center", color=INK3, fontsize=7.5)
     fig.tight_layout(rect=(0, 0.02, 1, 0.94))
     save(fig, out)
