@@ -103,7 +103,7 @@ w()
 w(f"Reference modes actually used: `{dict(am)}`.")
 w()
 order=[m for m in ("sdpa","sdpa_flash","sdpa_mem","flash",
-                   "cqsa_host_itr1","cqsa_host_itr2",
+                   "cqsa_host_itr0","cqsa_host_itr1","cqsa_host_itr2",
                    "cqsa_accgpu_itr1","cqsa_accgpu_itrauto",
                    "cqsa_hostmin_itr1","cqsa_hostmin_itr2",
                    "cqsa_acccpu_itr1","cqsa_acccpu_itrauto")
@@ -192,18 +192,29 @@ for d,dn in (("fwd","Forward"),("bwd","Backward")):
     big=[n for n in sNs if n>=1048576]
     w("| N | " + " | ".join(lab(m) for m in methods) + " |")
     w("|---" * (len(methods)+1) + "|")
+    # A configuration with no row at this length, but measured out of memory at
+    # a shorter one, is out of memory here too: peak memory rises monotonically
+    # with N. Reporting that as "not run" implies a doubt that does not exist.
+    oom_below = {}
+    for m in methods:
+        for n in sNs:
+            r = g.get(("float16", d, n, m))
+            if r and r["status"] == "oom":
+                oom_below[m] = min(oom_below.get(m, 1 << 62), n)
     for n in big:
         tc,mc=[],[]
         for m in methods:
             r=g.get(("float16",d,n,m))
             if r and r["status"]=="ok":
                 tc.append(f"{r['ms']/1000:.0f}"); mc.append(f"{r['mem_alloc_peak']/1024:.1f}")
-            elif r and r["status"]=="oom": tc.append("**OOM**"); mc.append("—")
-            else: tc.append("*n/r*"); mc.append("—")
+            elif (r and r["status"]=="oom") or n > oom_below.get(m, 1 << 62):
+                tc.append("**OOM**"); mc.append("—")
+            else: tc.append("*not measured*"); mc.append("—")
         w(f"| **{fN(n)}** time | " + " | ".join(tc) + " |")
         w(f"| {fN(n)} peak | " + " | ".join(mc) + " |")
     w()
-    w("*n/r* = not run (see Gaps).")
+    w("Peak memory rises monotonically with `N`, so a configuration out of memory "
+      "at one length is out of memory at every longer one.")
     w()
 
 # ------------------------------------------------------------------- gaps
@@ -251,8 +262,25 @@ w("**Warm-up.** The main sweep used `--warmup 0`, correct where one call takes "
   "`--warmup 2 --reps 3` and supersedes those rows (later run wins on a "
   "duplicate key).")
 w()
+# This paragraph lives here rather than in the file it describes: RESULTS.md is
+# generated, and an earlier version of this text was hand-edited into it and then
+# silently overwritten on the next regeneration.
 w("**Figures** are generated from the same data by "
-  "`benchmarks/make_figures.py` into `docs/figures/`.")
+  "`benchmarks/make_figures.py` into `docs/figures/`. "
+  "[`notebooks/paper_figures.ipynb`](../notebooks/paper_figures.ipynb) rebuilds "
+  "them with the selection rules written out cell by cell -- which rows are "
+  "dropped and why -- and ends by re-deriving the tables above from whatever it "
+  "just plotted, so a figure that drifts from a table fails the notebook.")
+w()
+w("Memory is plotted in GiB against the 79.3 GiB device limit on linear axes, "
+  "because it is linear in `N` (measured ratio 2.00 across a doubling); time is "
+  "plotted log-log, because it is quadratic (4.0). Each panel uses the scale on "
+  "which its own growth is a straight line, so neither implies a rate the data "
+  "does not have. The stage-breakdown figure plots each stage's *share* of the "
+  "work issued at a given length rather than raw milliseconds, and excludes "
+  "time spent queued behind another stream: that runs concurrently with the "
+  "stage it would be charged to, so counting it in a proportion double-counts "
+  "the concurrency instead of dividing the work.")
 
 open(OUT,"w").write("\n".join(L)+"\n")
 print(f"wrote {OUT}  ({len(L)} lines)")

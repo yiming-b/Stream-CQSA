@@ -652,18 +652,14 @@ def stage_panel(ax, rows, dtype, direction, method, title):
     # rather than as one experiment in which two configurations died. Every
     # panel now spans the full sweep and the shortfall is drawn.
     #
-    # The first failure is measured. The ones past it are not, and are marked
-    # differently: peak memory increases monotonically with N, so a
-    # configuration that cannot run at 8M cannot run at 16M either -- sound, but
-    # an inference, and it should not be dressed as a measurement.
+    # All of them are labelled OOM, including the ones past the first failure
+    # that were not themselves run. Peak memory increases monotonically in N, so
+    # a configuration that exhausts the device at 8M exhausts it at 16M; there
+    # is no uncertainty to hedge, and a second qualifier would suggest one.
     all_n = sorted({r["N"] for r in rows
                     if r["dtype"] == dtype and r["direction"] == direction
                     and r["status"] == "ok"})
-    measured_oom = {r["N"] for r in rows
-                    if r["method"] == method and r["dtype"] == dtype
-                    and r["direction"] == direction and r["status"] == "oom"}
-    last_ok = keep[-1]["N"]
-    failed = [n for n in all_n if n > last_ok]
+    failed = [n for n in all_n if n > keep[-1]["N"]]
 
     seen = {k for r in keep for k in r["stage_ms"] if k != "wait"}
     pref = [st for st in STAGE_ORDER if st in seen] + sorted(seen - set(STAGE_ORDER))
@@ -690,12 +686,10 @@ def stage_panel(ax, rows, dtype, direction, method, title):
 
     for i, n in enumerate(failed):
         x = len(keep) + i
-        measured = n in measured_oom
         ax.bar([x], [100], width=0.74, facecolor="none", hatch="////",
-               edgecolor=INK3, linewidth=0.9 if measured else 0.8,
-               linestyle="solid" if measured else (0, (2.5, 1.8)), zorder=3)
-        ax.text(x, 50, "OOM" if measured else "OOM (implied)", rotation=90,
-                ha="center", va="center", fontsize=fs(6.5), color=INK2, zorder=4)
+               edgecolor=INK3, linewidth=0.9, zorder=3)
+        ax.text(x, 50, "OOM", rotation=90, ha="center", va="center",
+                fontsize=fs(7), color=INK2, zorder=4)
 
     xs_all = list(range(len(keep) + len(failed)))
     ax.set_xticks(xs_all)
@@ -753,8 +747,7 @@ def fig_stages(rows, dtype, out, meta):
                bbox_to_anchor=(0.5, 1.005))
     fig.text(0.99, 0.005,
              "numerals = local-kernel share · queueing behind other streams "
-             "excluded · hatched = will not run; solid outline measured, dashed "
-             "implied by monotonicity in $N$",
+             "excluded · hatched = out of memory",
              ha="right", color=INK3, fontsize=fs(7))
     fig.tight_layout(rect=(0, 0.025, 1, 0.945))
     save(fig, out)

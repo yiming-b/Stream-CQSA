@@ -40,6 +40,16 @@ opening it locally works just as well.
 Causal attention, `B=1 H=8 D=64`, fp16, one **A100 80GB** (79.3 GiB usable).
 Cells are **wall-clock / peak device memory** (`max_memory_allocated`).
 
+Measured at twelve discrete lengths — **8K, 16K, 32K, 64K, 128K, 256K, 512K, 1M,
+2M, 4M, 8M, 16M** (`N = 2^13 … 2^24`). The tables below show 1M upward, where the
+memory boundary is; the full sweep is in [docs/RESULTS.md](docs/RESULTS.md).
+
+Three Stream-CQSA configurations appear. The two **acc=GPU** columns are run at a
+**fixed decomposition depth** — `itr=1` (7 subproblems) and `itr=2` (49) — so the
+time/memory trade is visible as a curve at a pinned depth; they are measurements,
+not recommendations. The **acc=CPU** column is the one to use: it picks the depth
+itself and keeps the fp32 accumulators on the host.
+
 ### The one-line version
 
 <div align="center">
@@ -79,7 +89,7 @@ does not.
 | **2M** | 106<br>24.1 | 3860<br>22.1 | 101<br>20.1 | 216<br>27.3 | 256<br>20.9 | 235<br>**15.2** * |
 | **4M** | 429<br>48.3 | 15421<br>44.3 | 407<br>40.3 | 847<br>54.5 | 983<br>41.7 | 885<br>**30.4** * |
 | **8M** | **OOM** | **OOM** | **OOM** | **OOM** | **OOM** | 3437<br>**60.8** |
-| **16M** | *not run* ‡ | *not run* ‡ | *not run* ‡ | **OOM** | **OOM** | 15847<br>**70.4** |
+| **16M** | **OOM** | **OOM** | **OOM** | **OOM** | **OOM** | 15847<br>**70.4** |
 
 Seconds (top) over peak GiB (bottom). `FA-2` is FlashAttention-2.
 Depth used by `auto`: `itr=1` everywhere except the 16M backward, which needs
@@ -87,8 +97,8 @@ Depth used by `auto`: `itr=1` everywhere except the 16M backward, which needs
 
 <sub>**\*** the planner would have declined to decompose here, since a monolithic
 call fits; these runs force `itr=1` so the column measures a decomposition at
-every `N`. **‡** all three are measured OOM at 8M and residency is linear in `N`,
-so 16M cannot fit; left blank rather than filled by inference.</sub>
+every `N`. Peak memory rises monotonically with `N`, so a configuration marked
+OOM at one length is OOM at every longer one.</sub>
 
 **Why the backward is the interesting direction.** `dQ`, `dK` and `dV` are three
 fp32 `[B,N,H,D]` buffers — **12 bytes per element** of O(N) device residency that
@@ -105,7 +115,7 @@ reaching for that backend for long-context training, measure it first.
 ### Accuracy
 
 Relative error against a **float64** reference (not against SDPA — SDPA is under
-test), `N=8192`, 10 seeds.
+test), `N=8192`, **median over 10 seeds**.
 
 <div align="center">
 
