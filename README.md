@@ -37,68 +37,29 @@ opening it locally works just as well.
 
 ## Results
 
-Causal attention, `B=1 H=8 D=64`, fp16, NVIDIA A100 80GB. Each cell is
-**wall-clock / peak device memory**, where peak is
-`torch.cuda.max_memory_allocated()`.
+Causal attention, `B=1 H=8 D=64`, fp16, one **A100 80GB** (79.3 GiB usable).
+Cells are **wall-clock / peak device memory** (`max_memory_allocated`).
 
-Three Stream-CQSA configurations appear, and the distinction matters:
+### The one-line version
 
-| column | decomposition depth | fp32 accumulator | what it is for |
-|:---:|:---:|:---:|:---:|
-| `itr=1` | **fixed** at 1 | **on GPU** | tracing the trade curve at a pinned depth |
-| `itr=2` | **fixed** at 2 | **on GPU** | as above, one step deeper |
-| `itr=auto`, acc=CPU | **automatic** | **on host** | **the configuration you should actually use** |
+<div align="center">
 
-The two fixed-depth columns are measurements, not recommendations — they exist
-so the time/memory trade is visible as a curve. The third column is what
-`stream_cqsa_auto` now runs by default: it picks the depth itself and moves the
-fp32 accumulator off the device, which is why it is the last column standing at
-16M — finishing there in 32.0 GiB forward and 48.5 GiB backward while every
-baseline is out of memory.
+| longest N that completes | forward | backward |
+|:---|:---:|:---:|
+| SDPA · SDPA mem-eff · FlashAttention-2 | 8M — **OOM at 16M** | 4M — **OOM at 8M** |
+| Stream-CQSA, accumulators on GPU | 16M, but only at `itr=2` (66.6 GiB) | 4M — **OOM at 8M**, either depth |
+| **Stream-CQSA, accumulators on host** | **16M in 41.5 GiB** | **16M in 70.4 GiB** |
 
-**What "acc" means in each direction.** In the forward it places the fp32 softmax
-accumulator; in the backward it places `dQ`, `dK` and `dV`. Different tensors, the
-same idea — an O(N) fp32 term that lives on the device or on the host — and the
-same trade in both directions: on the device it is faster and larger, on the host
-slower and smaller.
+</div>
 
-The forward pays **2.50×** less device memory for the host placement, the backward
-**1.79×**, both flat across `N`. The backward's term is the larger one in absolute
-size, three buffers rather than one, which is why it is the direction where the
-placement decides whether 8M runs at all.
+Same arithmetic, same answer — the decomposition is exact — but the memory
+ceiling moves by 2× in the forward and 4× in the backward. Below that ceiling
+Stream-CQSA is **1.6–2.7× slower** than FlashAttention-2 and runs in **about
+half** its memory in the forward (0.52×, flat in `N`) and **three-quarters** in
+the backward (0.75×). Use FlashAttention-2 when it fits; reach for this when it
+does not.
 
-One caveat on how that column is measured, because `auto` means two different
-things. In the package, `auto` starts at `itr=0` and the planner is free to
-decline to decompose — which is right for a library, since not decomposing is
-both the fastest and the smallest option when the call already fits. Measured
-that way, the planner chose `itr=0` at every `N` from 8K to 8M, and those rows
-report the undecomposed kernel rather than Stream-CQSA. The runs behind this
-column therefore start at `itr=1`, so it measures a decomposition at every `N`
-and stays comparable with the fixed-depth columns beside it.
-
-A cell carries a star only where a monolithic call would in fact have fitted,
-which is decidable from the baselines: FlashAttention-2 *is* a monolithic call,
-so wherever it completes the planner would have declined to decompose, and
-wherever it runs out of memory the planner must decompose regardless. This
-differs by direction at 8M, where the baselines complete in the forward and fail
-in the backward — so the forced `itr=1` departs from `auto` in the forward and
-coincides with it in the backward, and only the forward cell is starred.
-
-Above that floor, **`auto` means the smallest depth that fits the memory
-budget** — the shallowest decomposition is also the fastest, so there is no
-reason to go deeper than feasibility requires. That is `itr=1` at every `N` here
-except the 16M backward, which needs `itr=3`: three fp32 `[B,N,H,D]` gradient
-buffers put `itr=1` at a projected 121.6 GiB, against 79.3 available. The depth
-used is given under each table. Cells where
-the planner would have chosen `itr=0` and the run forced `itr=1` are marked with a
-star. The 16M cells carry no star: there `auto` genuinely chose `itr=3`.
-
-**Read the backward column with that in mind.** Starred cells are pinned at
-`itr=1`, one level shallower than a fixed `itr=2` would be, so they carry a larger
-in-flight working set than the depth the planner might otherwise reach.
-
-In normal use you never pick a depth yourself — see
-[On choosing the depth](#on-choosing-the-depth).
+![memory and wall-clock across N](docs/figures/fig_mem_time_fp16.png)
 
 ### Forward
 
@@ -107,27 +68,8 @@ In normal use you never pick a depth yourself — see
 | **1M** | 8<br>5.0 | 15<br>5.0 | 8<br>5.0 | 14<br>6.5 | 15<br>4.2 | 21<br>**2.6** * |
 | **2M** | 32<br>10.1 | 61<br>10.0 | 32<br>10.1 | 52<br>13.0 | 65<br>8.3 | 66<br>**5.2** * |
 | **4M** | 131<br>20.1 | 245<br>20.0 | 130<br>20.1 | 203<br>25.9 | 240<br>16.7 | 228<br>**10.4** * |
-| **8M** | 520<br>40.2 | 966<br>40.0 | 532<br>40.3 | 802<br>51.8 | 914<br>33.3 | 846<br>**20.7** * |
+| **8M** | 520<br>40.3 | 966<br>40.0 | 532<br>40.3 | 802<br>51.8 | 914<br>33.3 | 846<br>**20.7** * |
 | **16M** | **OOM** | **OOM** | **OOM** | **OOM** | 3544<br>66.6 | 3277<br>**41.5** |
-
-Each cell is **wall-clock seconds** (top) over **peak GiB** (bottom).
-`FA-2` is FlashAttention-2; `CQSA` is Stream-CQSA. A **\*** marks a cell pinned at
-`itr=1` where the planner would have chosen `itr=0` — see above.
-
-**Below 16M, Stream-CQSA buys headroom rather than reach**: every method here
-succeeds, and acc=CPU does it in **0.52×** FlashAttention-2's memory, flat to two
-decimals from 512K up, for 1.6–2.7× the time. At `itr=1` with the accumulator on
-the device it uses *more* memory than the baselines, because that accumulator is
-an extra O(N) device term one level of decomposition does not pay for.
-
-**At 16M the boundary moves.** Every baseline is out of memory and Stream-CQSA is
-not: acc=CPU finishes in **32.0 GiB**, less than FlashAttention-2 needs at 8M for
-half the sequence. That is what keeping both O(N) terms off the device buys, and
-the forward is the direction where the accumulator's placement is the whole
-story — a flat **2.50×** less device memory than acc=GPU at the same depth, for
-6% more time at 8M.
-
-![memory and wall-clock across N](docs/figures/fig_mem_time_fp16.jpg)
 
 ### Backward
 
@@ -139,123 +81,60 @@ story — a flat **2.50×** less device memory than acc=GPU at the same depth, f
 | **8M** | **OOM** | **OOM** | **OOM** | **OOM** | **OOM** | 3437<br>**60.8** |
 | **16M** | *not run* ‡ | *not run* ‡ | *not run* ‡ | **OOM** | **OOM** | 15847<br>**70.4** |
 
-Same units and marks as above.
+Seconds (top) over peak GiB (bottom). `FA-2` is FlashAttention-2.
+Depth used by `auto`: `itr=1` everywhere except the 16M backward, which needs
+`itr=2`.
 
-**This is where the method pays off, and the 8M row is the whole argument.**
-Every baseline is out of memory there — and so is Stream-CQSA with the fp32
-gradient accumulators on the device, at *both* depths. Only acc=CPU finishes, in
-60.8 GiB, and it goes on to complete 16M in **70.4 GiB** at `itr=2`.
+<sub>**\*** the planner would have declined to decompose here, since a monolithic
+call fits; these runs force `itr=1` so the column measures a decomposition at
+every `N`. **‡** all three are measured OOM at 8M and residency is linear in `N`,
+so 16M cannot fit; left blank rather than filled by inference.</sub>
 
-The reason is structural. The backward's `dQ`, `dK` and `dV` are three fp32
-`[B, N, H, D]` buffers, **12 bytes per element** of O(N) device residency that no
-depth of decomposition reduces — measured at 12.01 B/element against a predicted
-12.00. Deeper decomposition shrinks the in-flight working set, which is why
-`itr=2` sits below `itr=1` at every `N` that fits, but it cannot touch that floor.
-Moving the buffers to the host is the only lever that does, and it costs about 8%
-in time.
+**Why the backward is the interesting direction.** `dQ`, `dK` and `dV` are three
+fp32 `[B,N,H,D]` buffers — **12 bytes per element** of O(N) device residency that
+no depth of decomposition reduces (measured 12.01 against a predicted 12.00).
+Deeper decomposition shrinks the in-flight working set, not that floor. Moving
+the buffers to the host is the only lever that touches it, and it costs ~8% in
+time. That is why 8M runs at all.
 
-Below the boundary the trade is the ordinary one: at 4M acc=CPU does the backward
-in 30.4 GiB against FlashAttention-2's 40.3 — **0.76×** — for **2.2×** the time.
-
-**The depth knob behaves differently in the two directions at 16M**, which is
-worth reading off the two tables together. In the forward, `itr=2` and `itr=3`
-both peak at 32.0 GiB and `itr=3` is simply 1.6× slower — depth has stopped
-buying anything, because peak has reached the floor residency sets. In the
-backward it has not: `itr=2` costs 15847 s at 70.4 GiB and `itr=3` costs 18890 s
-at **48.5 GiB**, so a third level still trades 19% more time for 31% less memory.
-The backward's in-flight working set is larger relative to its floor, so the knob
-keeps working there after it has saturated in the forward. Both cells are
-reported; the table gives the smallest depth that fits, and `itr=3` remains
-available where 70.4 GiB is too close to the edge.
-
-One incidental finding worth flagging: PyTorch's **memory-efficient SDPA backend
-is a severe outlier in the backward** — 15 421 s at 4M against FlashAttention-2's
-407 s, a factor of 38 — while using *more* memory than Stream-CQSA at `itr=2`. If
-you are reaching for that backend for long-context training, measure it.
-
-‡ **The 16M backward baselines were not run.** All three are measured OOM at 8M
-and their residency is linear in `N`, so 16M cannot fit either; the cell is left
-honest rather than filled by inference.
-
-### What it costs
-
-Below the OOM boundary Stream-CQSA is **always slower** than the baselines it is
-meant to rescue, and with the fp32 accumulators on the device it uses **more**
-memory than them in both directions. That is the trade, and the repository does
-not hide it. Moving those accumulators to the host is what turns the memory
-column around.
-
-Ratios against FlashAttention-2, fp16, min–max across `N`. Forward rows span
-1M–8M; backward rows span 1M–4M, because FlashAttention-2 is out of memory at 8M
-and there is nothing left to take a ratio against.
-
-<div align="center">
-
-| | | time | peak memory |
-|:---:|:---:|:---:|:---:|
-| forward | `itr=1` acc=GPU | 1.51–1.80× | 1.29× |
-| forward | `itr=2` acc=GPU | 1.72–2.02× | 0.83× |
-| forward | `auto` acc=CPU | 1.59–2.68× | **0.52×** |
-| backward | `itr=1` acc=GPU | 2.08–2.22× | 1.35× |
-| backward | `itr=2` acc=GPU | 2.41–2.59× | 1.04× |
-| backward | `auto` acc=CPU | 2.17–2.61× | **0.76×** |
-
-</div>
-
-**Every memory ratio is constant across `N` to two decimal places.** That is not
-a coincidence of the sizes chosen: the decomposition shrinks the working set by a
-factor fixed by the depth, and the accumulator's placement moves a term that is
-linear in `N`, so both effects are ratios rather than offsets. The time ratios are
-*not* constant and improve with `N` — acc=CPU is 2.68× FlashAttention-2 at 1M and
-1.59× at 8M — as the fixed per-call cost of gathering and staging is amortised
-over more work.
-
-**Use FlashAttention-2 when it fits.** Reach for Stream-CQSA when it does not, or
-when the memory headroom is worth more to you than the 1.5–2.6×.
+**One incidental finding.** PyTorch's memory-efficient SDPA backend is a severe
+outlier in the backward — 15 421 s at 4M against FlashAttention-2's 407 s, a
+factor of 38 — while using more memory than Stream-CQSA at `itr=2`. If you are
+reaching for that backend for long-context training, measure it first.
 
 ### Accuracy
 
-Every number is measured **against a float64 reference**, not against SDPA —
-SDPA is one of the methods under test, not the yardstick. N=8192, 10 seeds.
+Relative error against a **float64** reference (not against SDPA — SDPA is under
+test), `N=8192`, 10 seeds.
 
-**Forward** — relative error vs float64:
+<div align="center">
 
-| method | fp16 | bf16 |
-|:---:|:---:|:---:|
-| SDPA | 2.689e-04 | 2.168e-03 |
-| FlashAttention-2 | 2.689e-04 | 2.168e-03 |
-| **Stream-CQSA `itr=1`** | **1.705e-04** | **1.375e-03** |
-| **Stream-CQSA `itr=2`** | **1.681e-04** | **1.356e-03** |
+| | fp16 fwd | bf16 fwd | fp16 bwd | bf16 bwd |
+|:---|:---:|:---:|:---:|:---:|
+| SDPA / FlashAttention-2 | 2.69e-04 | 2.16e-03 | 3.07e-04 | 2.45e-03 |
+| Stream-CQSA `itr=1` | **1.70e-04** | **1.37e-03** | 3.08e-04 | 2.45e-03 |
+| Stream-CQSA `itr=2` | **1.68e-04** | **1.35e-03** | 3.08e-04 | 2.46e-03 |
 
-**Backward** — relative error vs a *dense* float64 reference:
+</div>
 
-| method | fp16 | bf16 |
-|:---:|:---:|:---:|
-| SDPA | 3.075e-04 | 2.458e-03 |
-| FlashAttention-2 | 3.075e-04 | 2.458e-03 |
-| Stream-CQSA `itr=1` | 3.080e-04 | 2.462e-03 |
-| Stream-CQSA `itr=2` | 3.085e-04 | 2.465e-03 |
+**Decomposition costs no accuracy.** The backward — the like-for-like
+comparison, both paths returning fp32 — lands within **0.3%** of the baselines
+and barely moves between `itr=1` and `itr=2`, so error does not compound as
+subproblems are merged. The forward is **1.58× better** only because Stream-CQSA
+accumulates and returns fp32 where the baselines round the output to fp16; cast
+it down and the two agree.
 
-Three claims this supports:
+![accuracy across precision](docs/figures/fig_accuracy.png)
 
-- **Decomposition costs no accuracy.** Backward error is flat in `itr` to three
-  significant figures; error does **not** compound as subproblems are merged.
-- **The forward is ~1.6× *more* accurate than the baselines.** Not a rounding
-  artefact: Stream-CQSA's statistics and output path are fp32 while the
-  baselines round the output to fp16.
-- **The floor is the input dtype, not the method.** bf16/fp16 = 8.0–8.1×
-  everywhere, exactly the mantissa ratio (10 vs 7 explicit bits, 2³ = 8).
+> One caveat: when attention is close to uniform, `dS = P(dP − D)` suffers
+> catastrophic cancellation and decomposition amplifies it. At realistic score
+> magnitudes the drift vanishes, and the undecomposed baseline is already
+> degraded in that regime — it is a property of the input, not the method.
+> [docs/METHODOLOGY.md](docs/METHODOLOGY.md) has the numbers.
 
-![accuracy across precision](docs/figures/fig_accuracy.jpg)
-
-> **One caveat, stated plainly.** When attention is close to uniform, the
-> backward's `dS = P(dP − D)` suffers catastrophic cancellation, and
-> decomposition amplifies it (each subproblem's `dP` is further from the global
-> `D` it is differenced against). At an input scale of 0.05 the `dQ` error
-> drifts 3.5e-03 → 8.5e-03 from `itr=0` to `itr=2`. At realistic score
-> magnitudes (scale ≥ 0.5) the drift vanishes entirely, and the undecomposed
-> baseline is *already* 11× degraded in that regime — it is a property of the
-> input, not of the method. Details in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
+Full tables (8K–16M, both precisions, per-stage breakdowns) and the reasoning
+behind every choice above are in **[docs/RESULTS.md](docs/RESULTS.md)** and the
+paper.
 
 ---
 
@@ -698,26 +577,18 @@ published tables.
 
 ### Why it does not overflow
 
-The obvious way to recompose subproblems is through unnormalised numerators and
-denominators, reconstructing `Den_i = exp(lse_i)` from each local kernel's
-log-sum-exp. **This is algebraically correct and numerically unusable.** `exp`
-overflows fp32 at `lse > 88.72` (`ln FLT_MAX`), and `lse` grows with both score
-magnitude and sequence length — precisely the regime this method exists for.
-Past the threshold you get `inf/inf`: silently zeros or NaNs, no exception, no
-warning. In the backward the same substitution yields **silently wrong
-gradients**, which is worse, because training degrades slowly and the model gets
-the blame.
+Recomposing through unnormalised numerators and denominators — reconstructing
+`Den_i = exp(lse_i)` — is algebraically correct and numerically unusable: `exp`
+overflows fp32 at `lse > 88.72`, and `lse` grows with sequence length, which is
+exactly the regime this method exists for. Past that you get `inf/inf` — zeros
+or NaNs, no exception — and in the backward, silently wrong gradients.
 
-Stream-CQSA never forms that quantity. The forward carries `(acc, l, m)` and
-merges by re-basing both sides onto `m' = max(m, m_i)`, so every exponent is
-`≤ 0` and every intermediate lies in `(0, 1]`. The backward uses the *global*
-log-sum-exp already produced by the forward, giving
-`P = exp(s − lse_global) ≤ 1` by construction. `exp(lse)` is never computed, for
-any subproblem, at any point.
+Stream-CQSA never forms that quantity. The forward merges `(acc, l, m)` by
+re-basing onto `m' = max(m, m_i)`, so every intermediate lies in `(0, 1]`; the
+backward uses the forward's *global* log-sum-exp, giving `P = exp(s − lse) ≤ 1`
+by construction. `exp(lse)` is never computed anywhere.
 
-The full account — including the CQS block-summary masking that gives O(1) tile
-verdicts, and the register-budget bug that cost a 7× slowdown before it was
-found — is in **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**.
+Full account in **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**.
 
 ---
 

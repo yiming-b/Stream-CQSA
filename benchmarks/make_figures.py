@@ -768,22 +768,20 @@ def save(fig, out):
     JPEG has no alpha channel, so an explicit white facecolor is required or the
     background renders black.
 
-    Three formats. The .pdf and .svg are vector: no resolution at all, so they
-    are exact at any magnification and are what a paper should actually
-    include. The .jpg is raster and is kept because main.tex references .jpg
-    like the figures already in it; at 600 dpi it is past the point where more
-    pixels buy anything on paper, since the codec's own artifacts dominate
-    before the sampling does. Quality is raised to 97 and chroma subsampling
-    turned off -- the default halves colour resolution, which is visible on
-    thin coloured line art like these series."""
+    Three formats, and no JPEG. The .pdf and .svg are vector -- no resolution at
+    all, exact at any magnification -- and are what the paper embeds. The .png
+    is the raster copy at 600 dpi, for the README: lossless, so thin coloured
+    line art carries no codec artifacts, and the format GitHub renders most
+    predictably. JPEG was dropped once nothing referenced it: it was 3.4 MB
+    against the PDF's 41 KB for a strictly worse image, and it churned on every
+    edit to a figure."""
     base = os.path.splitext(os.path.abspath(out))[0]
     os.makedirs(os.path.dirname(base), exist_ok=True)
     fig.savefig(base + ".svg", bbox_inches="tight", facecolor="white")
     fig.savefig(base + ".pdf", bbox_inches="tight", facecolor="white")
-    fig.savefig(base + ".jpg", bbox_inches="tight", facecolor="white", dpi=600,
-                pil_kwargs={"quality": 97, "optimize": True, "subsampling": 0})
+    fig.savefig(base + ".png", bbox_inches="tight", facecolor="white", dpi=600)
     plt.close(fig)
-    print(f"  wrote {os.path.basename(base)}.jpg + .pdf + .svg")
+    print(f"  wrote {os.path.basename(base)}.png + .pdf + .svg")
 
 
 def write_table(rows, out):
@@ -836,8 +834,8 @@ def main() -> int:
     for dt in sorted({r["dtype"] for r in rows}):
         tag = "fp16" if dt == "float16" else "bf16"
         fig_memory_time(rows, dt, methods,
-                        os.path.join(a.out_dir, f"fig_mem_time_{tag}.jpg"), meta)
-    fig_accuracy(rows, os.path.join(a.out_dir, "fig_accuracy.jpg"), meta)
+                        os.path.join(a.out_dir, f"fig_mem_time_{tag}.png"), meta)
+    fig_accuracy(rows, os.path.join(a.out_dir, "fig_accuracy.png"), meta)
     for dt in sorted({r["dtype"] for r in rows}):
         tag = "fp16" if dt == "float16" else "bf16"
         for d in sorted({r["direction"] for r in rows}):
