@@ -130,9 +130,12 @@ test), `N=8192`, **median over 10 seeds**.
 **Decomposition costs no accuracy.** The backward — the like-for-like
 comparison, both paths returning fp32 — lands within **0.3%** of the baselines
 and barely moves between `itr=1` and `itr=2`, so error does not compound as
-subproblems are merged. The forward is **1.58× better** only because Stream-CQSA
-accumulates and returns fp32 where the baselines round the output to fp16; cast
-it down and the two agree.
+subproblems are merged. Its seed-to-seed spread coincides too (1.0–1.2% in fp16
+for every method), which is the stronger statement: not just the same answer on
+average, but the same behaviour draw by draw. The forward is **1.58× better**
+only because Stream-CQSA accumulates and returns fp32 where the baselines round
+the output to fp16; cast it down and the two agree — though it does vary more
+across seeds there (7.8–8.6% against the baselines' 3.0–5.6%).
 
 ![accuracy across precision](docs/figures/fig_accuracy.png)
 

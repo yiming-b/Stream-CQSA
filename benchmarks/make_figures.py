@@ -543,7 +543,11 @@ def fig_accuracy(rows, out, meta, methods=None, labels=None):
             print(f"  ! accuracy: requested but absent: {absent}", file=sys.stderr)
         methods = [m for m in methods if m in present and m in STYLE]
     labels = labels or {}
-    fig, ax = plt.subplots(figsize=(7.2, 3.4))
+    # Taller than wide-and-flat. The spread bars are a fixed fraction of the
+    # axis (the worst is 8.6% of its median, 2.8% of the axis height), while the
+    # marker is a fixed size in points -- so the only way to get the bar out
+    # from behind the marker is to give the axis more height per decade.
+    fig, ax = plt.subplots(figsize=(7.2, 4.2))
     xpos, xlab = [], []
     for i, (dt, d) in enumerate(cfgs):
         base = i * (len(methods) + 1.4)
@@ -554,13 +558,29 @@ def fig_accuracy(rows, out, meta, methods=None, labels=None):
             ci, mk, _ = STYLE[m]
             x = base + j
             mid = median(vals)
-            ax.plot([x], [mid], marker=mk, ms=6, color=SLOT[ci], zorder=3,
-                    markeredgecolor="white", markeredgewidth=0.6,
+
+            # The spread is drawn as a box, not a whisker, because the axis
+            # spans four groups an order of magnitude apart while the spread
+            # within a group is at most 8.6% of its median -- 2.8% of the axis
+            # height, which is shorter than the marker that sat on top of it.
+            # A whisker has to win on vertical extent and cannot; a box carries
+            # its visibility in its width, which is free here.
+            if len(vals) > 1:
+                lo_v, hi_v = min(vals), max(vals)
+                ax.add_patch(plt.Rectangle(
+                    (x - 0.30, lo_v), 0.60, hi_v - lo_v, facecolor=SLOT[ci],
+                    alpha=0.30, edgecolor=SLOT[ci], linewidth=0.9, zorder=2))
+                # median as a full-width rule, the way a box plot reads
+                ax.plot([x - 0.30, x + 0.30], [mid, mid], color=SLOT[ci],
+                        lw=1.6, solid_capstyle="butt", zorder=4)
+
+            # Small marker for identity: it is what the legend keys on and what
+            # survives greyscale, so it stays, but it no longer has to also
+            # carry the value.
+            ax.plot([x], [mid], marker=mk, ms=4.0, color=SLOT[ci], zorder=5,
+                    markeredgecolor="white", markeredgewidth=0.8,
                     label=(labels.get(m, LABEL[m]) if i == 0 else None),
                     linestyle="none")
-            if len(vals) > 1:
-                ax.plot([x, x], [min(vals), max(vals)], color=SLOT[ci],
-                        lw=1.4, alpha=0.55, zorder=2)
         xpos.append(base + (len(methods) - 1) / 2)
         xlab.append(f"{'fp16' if dt=='float16' else 'bf16'}\n{'fwd' if d=='fwd' else 'bwd'}")
     ax.set_yscale("log")
@@ -579,7 +599,8 @@ def fig_accuracy(rows, out, meta, methods=None, labels=None):
                  color=INK, fontsize=fs(10), loc="left", pad=6)
     ax.legend(frameon=False, fontsize=fs(8.5), labelcolor=INK2, ncol=3,
               loc="upper left", bbox_to_anchor=(0, -0.16))
-    fig.text(0.99, 0.02, "marker = median, bar = min\u2013max over 10 seeds",
+    fig.text(0.99, 0.02,
+             "box = min\u2013max over 10 seeds, rule = median",
              ha="right", color=INK3, fontsize=fs(7.5))
     fig.tight_layout()
     save(fig, out)
