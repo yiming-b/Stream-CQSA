@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+The planner now accounts for where tensors actually live, which changes the
+depth it selects at the top of the range. Everything else is additive.
+
 
 ### Fixed: the depth planner counted host-resident terms as device memory
 
