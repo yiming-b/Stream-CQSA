@@ -185,8 +185,20 @@ def load(dirs, min_n=0):
     return rows
 
 
-def style_axes(ax, xlabel, ylabel, title=None):
-    ax.set_xscale("log", base=2)
+def nfmt(v, _p=None):
+    """8192 -> 8K, 16777216 -> 16M. Used on both x-scales."""
+    if v >= 1_048_576:
+        return f"{v/1_048_576:g}M"
+    if v >= 1024:
+        return f"{v/1024:g}K"
+    return f"{v:g}"
+
+
+def style_axes(ax, xlabel, ylabel, title=None, xscale="log"):
+    if xscale == "log":
+        ax.set_xscale("log", base=2)
+    else:
+        ax.set_xscale("linear")
     ax.set_yscale("log")
     ax.grid(True, which="major", color=GRID, lw=0.7, zorder=0)
     ax.grid(True, which="minor", color=GRID, lw=0.4, alpha=0.6, zorder=0)
@@ -201,10 +213,12 @@ def style_axes(ax, xlabel, ylabel, title=None):
     ax.set_ylabel(ylabel, color=INK2, fontsize=9)
     if title:
         ax.set_title(title, color=INK, fontsize=10, pad=6, loc="left")
-    ax.xaxis.set_major_formatter(FuncFormatter(
-        lambda v, p: (f"{v/1_048_576:.0f}M" if v >= 1_048_576 else
-                      f"{v/1024:.0f}K" if v >= 1024 else f"{v:.0f}")))
-    ax.xaxis.set_major_locator(LogLocator(base=2, numticks=20))
+    ax.xaxis.set_major_formatter(FuncFormatter(nfmt))
+    if xscale == "log":
+        ax.xaxis.set_major_locator(LogLocator(base=2, numticks=20))
+    else:
+        ax.set_xlim(0, 16 * 1_048_576)
+        ax.set_xticks([i * 4 * 1_048_576 for i in range(5)])
 
 
 OUT_NORM_TOL = 0.05
@@ -286,7 +300,7 @@ def series_for(rows, method, dtype, direction, field):
             oom_n = r["N"] if oom_n is None else min(oom_n, r["N"])
     xs = sorted(pts)
     ys = [sum(pts[x]) / len(pts[x]) for x in xs]
-    return xs, ys, oom_n
+    return xs, ys, oom_n, {x: depth[x] for x in xs if x in depth}
 
 
 def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
@@ -294,15 +308,25 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
     """One panel.
 
     `scale` converts the stored unit to the plotted one; `capacity` switches the
-    panel to the memory presentation: a linear axis from zero to the device's
+    panel to the memory presentation: linear on both axes, zero to the device's
     memory, with the limit drawn.
 
-    Memory is linear here and time is logarithmic, which is not an
-    inconsistency. The question a reader brings to the memory panel is "how
-    close to the card did this get, and what fell off it" -- that is a question
-    about a fixed ceiling, and only a linear axis from zero shows a value as a
-    fraction of it. Time has no ceiling and spans seven decades, so it stays
-    logarithmic.
+    The two rows of this figure use different scales, deliberately: each uses
+    the one on which its own growth is a straight line, so that no curve implies
+    a rate the data does not have.
+
+    Peak memory is linear in N -- the measured ratio across a doubling is 2.00
+    -- and time is quadratic, at 4.0. Plotted together on a log x-axis with a
+    linear y, as they were, the memory panel turned a straight line into an
+    exploding curve and read as quadratic growth: the distortion was entirely in
+    the frame, and it argued against the very property the method is claimed to
+    have. On linear axes the same rows are straight lines whose slopes differ,
+    which is the actual finding, and the ceiling each one crosses is where it
+    dies.
+
+    Time keeps log-log, where a quadratic is a straight line of slope two.
+    Putting it on a linear x with a log y would introduce the mirror-image error
+    -- a quadratic would bend over and read as though it were saturating.
 
     Out-of-memory is marked at the length that FAILED, not at the last one that
     worked. Drawn at the last success it read as "SDPA fails at 8M" when SDPA
@@ -320,7 +344,7 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
     for m in methods:
         if m not in STYLE:
             continue
-        xs, ys, oom_n = series_for(rows, m, dtype, direction, field)
+        xs, ys, oom_n, depths = series_for(rows, m, dtype, direction, field)
         if not xs:
             continue
         any_data = True
@@ -333,7 +357,23 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
         if oom_n is not None:
             marks.append((oom_n, xs[-1], ys[-1], SLOT[ci]))
 
-    style_axes(ax, "sequence length $N$", ylabel, title)
+        # Where the resolved depth changes, say so. "auto" means the smallest
+        # depth that fits, so it steps up when the previous one stops fitting --
+        # at N=16M in the backward. On a linear axis that step puts a visible
+        # bend in an otherwise straight line, and unlabelled it reads as memory
+        # growing sub-linearly rather than as a deeper decomposition being
+        # bought at that length.
+        if capacity and depths:
+            for xi, x in enumerate(xs):
+                if xi and depths.get(x) is not None and \
+                        depths.get(x) != depths.get(xs[xi - 1]):
+                    ax.annotate(f"itr={depths[x]}", (x, ys[xi]),
+                                textcoords="offset points", xytext=(-4, -13),
+                                ha="right", fontsize=7, color=SLOT[ci],
+                                zorder=6)
+
+    style_axes(ax, "sequence length $N$", ylabel, title,
+               xscale="linear" if capacity else "log")
 
     if capacity and any_data:
         ax.set_yscale("linear")
@@ -362,7 +402,12 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
         for i, (_, x_last, y_last, colour) in enumerate(group):
             if y_fail is None:
                 continue
-            off = oom_n * (1.052 ** (i - (k - 1) / 2)) if k > 1 else oom_n
+            if k == 1:
+                off = oom_n
+            elif capacity:          # linear x: an additive nudge, ~1.4% of span
+                off = oom_n + (i - (k - 1) / 2) * 0.23e6
+            else:                   # log x: multiplicative, so spacing is even
+                off = oom_n * (1.052 ** (i - (k - 1) / 2))
             ax.plot([x_last, off], [y_last, y_fail], color=colour, lw=0.9,
                     ls=(0, (1, 2)), zorder=2, alpha=0.7)
             ax.plot([off], [y_fail], marker="x", ms=8, mew=2.2, color=colour,
