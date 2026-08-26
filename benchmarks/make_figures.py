@@ -49,6 +49,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter, LogLocator
 
+# Every label size in this module is expressed through fs(), so type can be
+# scaled for the printed size in one place rather than at twenty-one call sites.
+FONT_SCALE = 1.28
+
+
+def fs(pt):
+    return round(pt * FONT_SCALE, 2)
+
+
 # --- validated categorical slots, fixed order (see module docstring) --------
 SLOT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
 INK = "#0b0b0b"
@@ -210,10 +219,10 @@ def style_axes(ax, xlabel, ylabel, title=None, xscale="log"):
         ax.spines[s].set_linewidth(0.8)
     ax.tick_params(colors=INK2, labelsize=8, length=3, width=0.8)
     ax.set_xlabel(xlabel + ("  (log$_2$)" if xscale == "log" else "  (linear)"),
-                  color=INK2, fontsize=9)
-    ax.set_ylabel(ylabel, color=INK2, fontsize=9)
+                  color=INK2, fontsize=fs(9))
+    ax.set_ylabel(ylabel, color=INK2, fontsize=fs(9))
     if title:
-        ax.set_title(title, color=INK, fontsize=10, pad=6, loc="left")
+        ax.set_title(title, color=INK, fontsize=fs(10), pad=6, loc="left")
     ax.xaxis.set_major_formatter(FuncFormatter(nfmt))
     if xscale == "log":
         ax.xaxis.set_major_locator(LogLocator(base=2, numticks=20))
@@ -395,8 +404,8 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
                 if xi and depths.get(x) is not None and \
                         depths.get(x) != depths.get(xs[xi - 1]):
                     ax.annotate(f"itr={depths[x]}", (x, ys[xi]),
-                                textcoords="offset points", xytext=(-4, -13),
-                                ha="right", fontsize=7, color=SLOT[ci],
+                                textcoords="offset points", xytext=(-7, -17),
+                                ha="right", fontsize=fs(7), color=SLOT[ci],
                                 zorder=6)
 
     style_axes(ax, "sequence length $N$", ylabel, title,
@@ -409,7 +418,7 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
         ax.axhline(capacity, color=INK3, lw=0.9, ls=(0, (5, 3)), zorder=1)
         ax.text(0.015, capacity * 1.01, f"device limit {capacity:g} GiB",
                 transform=ax.get_yaxis_transform(), va="bottom", ha="left",
-                color=INK3, fontsize=7)
+                color=INK3, fontsize=fs(7))
         y_fail = capacity
     else:
         # Log panel: park the markers just under the top of the drawn range.
@@ -468,7 +477,11 @@ def fig_memory_time(rows, dtype, methods, out, meta):
     panels = ([(d, "mem_alloc_peak", "peak GPU memory (GiB)", "memory")
                for d in dirs_present] +
               [(d, "ms", "wall-clock (ms)", "time") for d in dirs_present])
-    fig, axes = plt.subplots(1, len(panels), figsize=(3.7 * len(panels), 3.9),
+    # Height half the width. The row was nearly 4:1, which reproduces at a size
+    # where the type has to be tiny to fit; a 1:2 block sits at the width of a
+    # two-column spread and leaves the panels tall enough to read.
+    width = 3.05 * len(panels)
+    fig, axes = plt.subplots(1, len(panels), figsize=(width, width / 2.0),
                              squeeze=False)
     name = {"fwd": "forward", "bwd": "backward"}
     ok = False
@@ -479,16 +492,18 @@ def fig_memory_time(rows, dtype, methods, out, meta):
                          capacity=meta.get("gpu_gib") if kind == "memory" else None)
     handles, labels = axes[0][0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=min(len(labels), 6),
-               frameon=False, fontsize=8, labelcolor=INK2,
-               bbox_to_anchor=(0.5, 1.02), handlelength=2.6, columnspacing=1.4)
+               frameon=False, fontsize=fs(8), labelcolor=INK2,
+               bbox_to_anchor=(0.5, 1.005), handlelength=2.6, columnspacing=1.4)
     gpu = meta.get("gpu", "A100")
     fig.text(0.5, 0.005,
              f"{gpu} · B={meta.get('B',1)} H={meta.get('H',8)} D={meta.get('D',64)} · "
              f"{'fp16' if dtype == 'float16' else 'bf16'} · causal · "
              f"\u2715 = where the trend meets the device limit; "
              f"the next length tested is the one that fails",
-             ha="center", color=INK3, fontsize=7.5)
-    fig.tight_layout(rect=(0, 0.03, 1, 0.88))
+             ha="center", color=INK3, fontsize=fs(7.5))
+    # The reserve is a fraction, so the same 0.12 that fitted one row of legend
+    # on a 3.9in figure leaves a visible band on a 6.1in one.
+    fig.tight_layout(rect=(0, 0.035, 1, 0.945))
     save(fig, out)
     return ok
 
@@ -550,7 +565,7 @@ def fig_accuracy(rows, out, meta, methods=None, labels=None):
         xlab.append(f"{'fp16' if dt=='float16' else 'bf16'}\n{'fwd' if d=='fwd' else 'bwd'}")
     ax.set_yscale("log")
     ax.set_xticks(xpos)
-    ax.set_xticklabels(xlab, color=INK2, fontsize=9)
+    ax.set_xticklabels(xlab, color=INK2, fontsize=fs(9))
     ax.grid(True, axis="y", which="major", color=GRID, lw=0.7)
     ax.set_axisbelow(True)
     for s in ("top", "right"):
@@ -559,13 +574,13 @@ def fig_accuracy(rows, out, meta, methods=None, labels=None):
         ax.spines[s].set_color(INK3)
         ax.spines[s].set_linewidth(0.8)
     ax.tick_params(colors=INK2, labelsize=8)
-    ax.set_ylabel("relative error vs float64", color=INK2, fontsize=9)
+    ax.set_ylabel("relative error vs float64", color=INK2, fontsize=fs(9))
     ax.set_title("Output accuracy is set by the input dtype, not by decomposition",
-                 color=INK, fontsize=10, loc="left", pad=6)
-    ax.legend(frameon=False, fontsize=8.5, labelcolor=INK2, ncol=3,
+                 color=INK, fontsize=fs(10), loc="left", pad=6)
+    ax.legend(frameon=False, fontsize=fs(8.5), labelcolor=INK2, ncol=3,
               loc="upper left", bbox_to_anchor=(0, -0.16))
     fig.text(0.99, 0.02, "marker = median, bar = min\u2013max over 10 seeds",
-             ha="right", color=INK3, fontsize=7.5)
+             ha="right", color=INK3, fontsize=fs(7.5))
     fig.tight_layout()
     save(fig, out)
     return True
@@ -629,7 +644,7 @@ def stage_panel(ax, rows, dtype, direction, method, title):
     if not keep:
         ax.set_axis_off()
         ax.text(0.5, 0.5, "no data", ha="center", va="center",
-                color=INK3, fontsize=8, transform=ax.transAxes)
+                color=INK3, fontsize=fs(8), transform=ax.transAxes)
         return False, []
 
     # Lengths this configuration cannot run. Without them a panel simply stops,
@@ -671,7 +686,7 @@ def stage_panel(ax, rows, dtype, direction, method, title):
         c = sh.get("compute", 0.0)
         if c >= 12:                     # below this the numeral will not fit
             ax.text(x, c / 2, f"{c:.0f}", ha="center", va="center",
-                    fontsize=6.5, color="white", zorder=4)
+                    fontsize=fs(6.5), color="white", zorder=4)
 
     for i, n in enumerate(failed):
         x = len(keep) + i
@@ -680,12 +695,12 @@ def stage_panel(ax, rows, dtype, direction, method, title):
                edgecolor=INK3, linewidth=0.9 if measured else 0.8,
                linestyle="solid" if measured else (0, (2.5, 1.8)), zorder=3)
         ax.text(x, 50, "OOM" if measured else "OOM (implied)", rotation=90,
-                ha="center", va="center", fontsize=6.5, color=INK2, zorder=4)
+                ha="center", va="center", fontsize=fs(6.5), color=INK2, zorder=4)
 
     xs_all = list(range(len(keep) + len(failed)))
     ax.set_xticks(xs_all)
     ax.set_xticklabels([nfmt(r["N"]) for r in keep] + [nfmt(n) for n in failed],
-                       color=INK2, fontsize=7, rotation=90)
+                       color=INK2, fontsize=fs(7), rotation=90)
     ax.set_xlim(-0.7, len(xs_all) - 0.3)
     ax.set_ylim(0, 100)
     ax.set_yticks([0, 25, 50, 75, 100])
@@ -697,7 +712,7 @@ def stage_panel(ax, rows, dtype, direction, method, title):
         ax.spines[sp].set_color(INK3)
         ax.spines[sp].set_linewidth(0.8)
     ax.tick_params(colors=INK2, labelsize=7)
-    ax.set_title(title, color=INK, fontsize=9, loc="left", pad=5)
+    ax.set_title(title, color=INK, fontsize=fs(9), loc="left", pad=5)
     return True, pref
 
 
@@ -725,22 +740,22 @@ def fig_stages(rows, dtype, out, meta):
             for st in pref:
                 if st not in stages:
                     stages.append(st)
-        axes[i][0].set_ylabel("share of issued work (%)", color=INK2, fontsize=8.5)
+        axes[i][0].set_ylabel("share of issued work (%)", color=INK2, fontsize=fs(8.5))
     for j in range(len(STAGE_CONFIGS)):
-        axes[1][j].set_xlabel("sequence length $N$", color=INK2, fontsize=8.5)
+        axes[1][j].set_xlabel("sequence length $N$", color=INK2, fontsize=fs(8.5))
 
     order = [st for st in STAGE_ORDER if st in stages]
     handles = [plt.Rectangle((0, 0), 1, 1,
                              color=SLOT[STAGE_ORDER.index(st) % len(SLOT)])
                for st in order]
     fig.legend(handles, order, loc="upper center", ncol=len(order),
-               frameon=False, fontsize=8.5, labelcolor=INK2,
+               frameon=False, fontsize=fs(8.5), labelcolor=INK2,
                bbox_to_anchor=(0.5, 1.005))
     fig.text(0.99, 0.005,
              "numerals = local-kernel share · queueing behind other streams "
              "excluded · hatched = will not run; solid outline measured, dashed "
              "implied by monotonicity in $N$",
-             ha="right", color=INK3, fontsize=7)
+             ha="right", color=INK3, fontsize=fs(7))
     fig.tight_layout(rect=(0, 0.025, 1, 0.945))
     save(fig, out)
     return ok
@@ -751,15 +766,24 @@ def save(fig, out):
     of the figures already in the paper; the .svg is the lossless copy.
 
     JPEG has no alpha channel, so an explicit white facecolor is required or the
-    background renders black. 400 dpi keeps line art and text clean at print
-    size despite the lossy codec."""
+    background renders black.
+
+    Three formats. The .pdf and .svg are vector: no resolution at all, so they
+    are exact at any magnification and are what a paper should actually
+    include. The .jpg is raster and is kept because main.tex references .jpg
+    like the figures already in it; at 600 dpi it is past the point where more
+    pixels buy anything on paper, since the codec's own artifacts dominate
+    before the sampling does. Quality is raised to 97 and chroma subsampling
+    turned off -- the default halves colour resolution, which is visible on
+    thin coloured line art like these series."""
     base = os.path.splitext(os.path.abspath(out))[0]
     os.makedirs(os.path.dirname(base), exist_ok=True)
     fig.savefig(base + ".svg", bbox_inches="tight", facecolor="white")
-    fig.savefig(base + ".jpg", bbox_inches="tight", facecolor="white",
-                dpi=400, pil_kwargs={"quality": 95, "optimize": True})
+    fig.savefig(base + ".pdf", bbox_inches="tight", facecolor="white")
+    fig.savefig(base + ".jpg", bbox_inches="tight", facecolor="white", dpi=600,
+                pil_kwargs={"quality": 97, "optimize": True, "subsampling": 0})
     plt.close(fig)
-    print(f"  wrote {os.path.basename(base)}.jpg + .svg")
+    print(f"  wrote {os.path.basename(base)}.jpg + .pdf + .svg")
 
 
 def write_table(rows, out):
