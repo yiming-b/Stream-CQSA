@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.1
+
+Measurement only. No change to any computed result.
+
+### Fixed: the streamed forward mis-timed its device-to-host stage
+
+`stream_cqsa_forward` recorded the `d2h` stage with a host timer and no CUDA
+event, so `TraceRecorder.stage_totals_ms()` fell back to the host interval for
+it. That copy is blocking, so the interval also contained the wait for the
+asynchronous kernel before it, and the stage reported kernel + copy rather than
+copy. Per subsequence at N=1M: 1732 ms recorded against 1566 ms of kernel, a
+166 ms difference that is the actual transfer. In aggregate the host-accumulating
+forward's stage totals came to 1.95x its measured wall clock, where every other
+configuration came to 1.00x.
+
+The copy is now bracketed by a CUDA event pair, as the backward always did for
+all three of its device stages. Measured directly, returning the accumulator to
+the host costs 23.2 s at N=16M -- 0.7% of the call -- and doubles at 2.00 per
+doubling of N, which is what an O(N) transfer should do.
+
+Only `stage_totals_ms()` output changes. Wall clock, peak memory and every
+numerical result are unaffected: re-measuring the configuration on the same
+hardware reproduced wall clock to 0.9% and kernel time to 0.1%.
+
 ## 0.3.0
 
 The planner now accounts for where tensors actually live, which changes the

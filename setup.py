@@ -195,8 +195,8 @@ def build_extension() -> CUDAExtension:
 setup(
     name=PACKAGE_NAME,
     version=get_version(),
-    description="Stream-CQSA: exact long-context attention via cyclic quorum "
-                "set decomposition, forward and backward",
+    description="Stream-CQSA: exact out-of-memory recovery for attention, via "
+                "cyclic quorum set decomposition, forward and backward",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     author="Yiming Bian",

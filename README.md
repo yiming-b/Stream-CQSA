@@ -1,13 +1,14 @@
 # Stream-CQSA
 
-**Exact attention that still returns an answer where FlashAttention-2 runs out of memory.**
+**Exact out-of-memory recovery for attention: when a call will not fit, decompose it, run the pieces, and recompose the exact result.**
 
 Stream-CQSA decomposes one attention call into a set of smaller ones using a
 *cyclic quorum set* (CQS) over the sequence, runs them one at a time, and
 recomposes their local softmax statistics into the exact global result. The
 decomposition is a partition of the query–key pairs, so nothing is dropped,
-sampled, or approximated: the output is the attention function, not a surrogate
-for it.
+sampled, or approximated. Stream-CQSA defines no attention rule of its own: it
+reproduces the output of whichever kernel it wraps, exact or approximate, to
+within that kernel's own precision.
 
 The practical consequence is a knob that trades wall-clock time for peak device
 memory, and keeps turning after the monolithic kernel has already failed.
@@ -66,7 +67,7 @@ Same arithmetic, same answer — the decomposition is exact — but the memory
 ceiling moves by 2× in the forward and 4× in the backward. Below that ceiling
 Stream-CQSA is **1.6–2.7× slower** than FlashAttention-2 and runs in **about
 half** its memory in the forward (0.52×, flat in `N`) and **three-quarters** in
-the backward (0.75×). Use FlashAttention-2 when it fits; reach for this when it
+the backward (0.76×). Use FlashAttention-2 when it fits; reach for this when it
 does not.
 
 ![memory and wall-clock across N](docs/figures/fig_mem_time_fp16.png)

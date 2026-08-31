@@ -218,18 +218,32 @@ This works because **the CQS mask is block-structured**: a subsequence is the
 union of whole chunks, and chunks are contiguous token ranges. Measured census of
 the tiles that causal masking already keeps (128x128 tiles):
 
-| N | itr | fully masked | fully clear | partial |
-|---|--:|--:|--:|--:|
-| 65536 | 1 | 22.0% | 77.2% | 0.8% |
-| 65536 | 2 | 38.8% | 58.9% | 2.3% |
-| 262144 | 2 | 39.4% | 60.1% | 0.6% |
+Re-verified 2026-08-27 by `benchmarks/tile_census.py`, pooled over all `c**itr`
+subproblems (7 at itr=1, 49 at itr=2), as a share of the tiles causal masking
+retains. The original values stand; the run adds the missing rows and the
+per-subproblem range.
+
+| N | itr | fully masked | fully clear | partial | masked, per subproblem |
+|---|--:|--:|--:|--:|--:|
+| 65536 | 1 | 22.01% | 77.17% | 0.82% | 21.92-22.22% |
+| 65536 | 2 | 38.77% | 58.93% | 2.30% | 21.78-55.09% |
+| 262144 | 1 | 22.17% | 77.62% | 0.21% | 22.17-22.17% |
+| 262144 | 2 | 39.35% | 60.07% | 0.58% | 22.11-55.44% |
+| 1048576 | 1 | 22.21% | 77.74% | 0.05% | 22.20-22.22% |
+| 1048576 | 2 | 39.47% | 60.38% | 0.15% | 22.19-55.53% |
+
+The partial fractions published in `docs/REPORT.md` as 2.08% / 0.53% / 0.13%
+were computed over paths enumerated from the interest set, which gives 3 and 9
+subproblems rather than the 7 and 49 the decomposition actually has. They are
+superseded by the table above.
 
 Over 97% of tiles are resolved in O(1). Better, the *partial* fraction — the only
 tiles that pay per-element masking — shrinks as N grows, because a tile is
 partial only where it straddles a chunk boundary: partial tiles are `O(nb)` of
-`O(nb^2)`, i.e. `~l/nb`. Measured 2.08% / 0.53% / 0.13% at `nb` = 95 / 377 /
-1505, matching the prediction. **At N=1M only 0.13% of tiles run the general
-path**, which is why no further masking optimisation was pursued.
+`O(nb^2)`, i.e. `~l/nb`. At itr=2 the measured 2.30% / 0.58% / 0.15% at
+`nb` = 95 / 377 / 1505 sit below the `l/nb` bound of 3.16% / 0.80% / 0.20% by a
+constant 1.36-1.38x, confirming the form. **At N=1M only 0.15% of tiles run the
+general path**, which is why no further masking optimisation was pursued.
 
 ### 2.2 Register budget: the dominant effect
 

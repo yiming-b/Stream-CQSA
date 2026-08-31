@@ -1,0 +1,50 @@
+{
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "gpu_gib": 79.3,
+  "capability": "8.0",
+  "torch": "2.10.0+cu130",
+  "python": "3.11.14",
+  "alloc_conf": "expandable_segments:True",
+  "slurm_job": "13175428",
+  "flash_attn": "2.8.3",
+  "cotenants": [],
+  "B": 1,
+  "H": 8,
+  "D": 64,
+  "causal": true,
+  "reps": 1,
+  "warmup": 0,
+  "acc_rows": 128,
+  "seeds": [
+    0
+  ],
+  "itr": "auto",
+  "n": [
+    524288,
+    1048576,
+    2097152,
+    4194304,
+    8388608,
+    16777216
+  ],
+  "n_per_direction": {
+    "fwd": null,
+    "bwd": null
+  },
+  "dtypes": [
+    "fp16"
+  ],
+  "input_scale": 1.0,
+  "itr_list": [
+    1
+  ],
+  "method_itr": {},
+  "directions": [
+    "fwd"
+  ],
+  "methods": [
+    "cqsa_acccpu"
+  ],
+  "tag": "e23_fp16_acccpu_fwd_restage_bigN",
+  "started": "2026-08-30 06:59:42"
+}

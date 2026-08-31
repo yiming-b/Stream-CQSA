@@ -1404,13 +1404,24 @@ def stream_cqsa_forward(
             t2 = time.perf_counter()
             stamp("compute", ev, t1, t2)
 
+            # Event-time this the way the backward does. A host timer here
+            # measures the blocking copy AND the wait for the asynchronous
+            # kernel that precedes it, so the recorded interval was kernel plus
+            # copy: at N=1M each subsequence reported 1732 ms against 1566 ms of
+            # kernel, and the stage totals came to 1.95x the measured wall
+            # clock. An event pair times the copy on the device, which is what
+            # the stage claims to be.
+            ev_d2h = mk_ev()
+            if on_cuda and ev_d2h[0] is not None:
+                ev_d2h[0].record()
             if acc_device.type == "cpu":
                 out_i = out_i.to("cpu", non_blocking=False)
                 lse_i = lse_i.to("cpu", non_blocking=False)
                 idx = task.token_ids
+            if on_cuda and ev_d2h[1] is not None:
+                ev_d2h[1].record()
             t3 = time.perf_counter()
-            trace.record(stage="d2h", task=task, start=t2, end=t3,
-                         active_subseq=in_flight)
+            stamp("d2h", ev_d2h, t2, t3)
 
             if on_cuda:
                 compute_done = torch.cuda.Event()
