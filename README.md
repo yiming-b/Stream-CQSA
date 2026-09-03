@@ -14,8 +14,7 @@ The practical consequence is a knob that trades wall-clock time for peak device
 memory, and keeps turning after the monolithic kernel has already failed.
 
 📄 **Paper:** [arXiv:2604.20819](https://doi.org/10.48550/arXiv.2604.20819) —
-*Stream-CQSA: Avoiding Out-of-Memory in Attention Computation via Flexible
-Workload Scheduling*
+*Stream-CQSA: Exact Out-of-Memory Recovery for Attention*
 
 <p align="center">
   <img src="docs/figures/stream_cqsa_forward.gif"
@@ -633,14 +632,13 @@ are in **[docs/RESULTS.md](docs/RESULTS.md)**.
 ## Citation
 
 
-> Yiming Bian and Joshua M. Akey. *Stream-CQSA: Avoiding Out-of-Memory in
-> Attention Computation via Flexible Workload Scheduling.* arXiv:2604.20819, 2026.
+> Yiming Bian and Joshua M. Akey. *Stream-CQSA: Exact Out-of-Memory Recovery
+> for Attention.* arXiv:2604.20819, 2026.
 > <https://doi.org/10.48550/arXiv.2604.20819>
 
 ```bibtex
 @article{bian2026streamcqsa,
-  title   = {Stream-CQSA: Avoiding Out-of-Memory in Attention Computation
-             via Flexible Workload Scheduling},
+  title   = {Stream-CQSA: Exact Out-of-Memory Recovery for Attention},
   author  = {Bian, Yiming and Akey, Joshua M.},
   journal = {arXiv preprint arXiv:2604.20819},
   year    = {2026},
@@ -650,8 +648,7 @@ are in **[docs/RESULTS.md](docs/RESULTS.md)**.
 ```
 
 The arXiv entry is versioned and the DOI above always resolves to the latest
-version. This repository tracks the revision in preparation, so some numbers
-here are newer than those in v1.
+version, which this repository matches.
 
 ---
 
