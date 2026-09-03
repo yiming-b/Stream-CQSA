@@ -139,7 +139,7 @@ def attention_oom_safe(
     #     exactly what just failed. Accepting it here guarantees a second OOM.
     #
     # So: start at least at 1, and on OOM go deeper. Each level shrinks the
-    # subproblems by ~c/l^2, which is the guardrail behaviour the method claims.
+    # subproblems by ~c/l^2, which is the guardrail behavior the method claims.
     # The ceiling is structural, not a constant: c**itr <= N is the deepest
     # decomposition the sequence admits, past which a level would produce
     # subproblems smaller than a single chunk. Capping at a fixed number instead

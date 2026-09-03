@@ -438,7 +438,7 @@ def test_escalation_can_be_pinned_off_for_a_fixed_depth_measurement():
     """
     A column labelled itr=1 has to report what itr=1 costs, including when itr=1
     does not fit. With escalation on, a subproblem that will not fit is refined
-    and the call succeeds at a mixture of depths -- the right behaviour for a
+    and the call succeeds at a mixture of depths -- the right behavior for a
     library, and wrong for a measurement, because the rescue gets filed under the
     depth that was requested. This is how a 16M forward came back as a 76.0 GiB
     success at itr=1 when itr=1 does not actually fit: seven of its subproblems

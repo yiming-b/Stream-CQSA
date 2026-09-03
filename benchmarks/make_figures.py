@@ -67,12 +67,12 @@ GRID = "#e3e2dd"
 
 # Series style: (color slot, marker, dash). Marker+dash carry identity without
 # color, which is what survives greyscale printing.
-# Series style: (colour slot, marker, dash).
+# Series style: (color slot, marker, dash).
 #
 # One slot per series, assigned in the palette's fixed order and never reused.
 # The previous assignment put three series on two green steps -- flash and
 # acc=CPU both on slot 2, the two acc=GPU depths both on slot 5 -- which the
-# palette validator scores at Delta E 0.0, i.e. literally the same colour for
+# palette validator scores at Delta E 0.0, i.e. literally the same color for
 # different series. Marker and dash still carry identity redundantly, for
 # greyscale print and for the ~8% of male readers with a red-green deficiency,
 # but they are no longer doing the work alone.
@@ -140,7 +140,7 @@ for _base, _slot in (("cqsa_auto", 4), ("cqsa_host", 5), ("cqsa_hostmin", 2),
         _k = f"{_base}_itr{_i}"
         # Do not overwrite a slot assigned explicitly above. This loop used to
         # run last and win, which is how three plotted series ended up sharing
-        # two colours after the explicit table had already separated them.
+        # two colors after the explicit table had already separated them.
         if _k not in STYLE:
             STYLE[_k] = (_slot, _mk, _dash)
         LABEL.setdefault(_k, f"{LABEL[_base]} itr={_i}")
@@ -438,7 +438,7 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
 
     for oom_n, group in by_n.items():
         k = len(group)
-        for i, (n_fail, x_last, y_last, colour, cross) in enumerate(group):
+        for i, (n_fail, x_last, y_last, color, cross) in enumerate(group):
             if y_fail is None:
                 continue
             if cross is not None:
@@ -449,9 +449,9 @@ def plot_panel(ax, rows, dtype, direction, field, methods, ylabel, title,
                 x_mark = n_fail + (i - (k - 1) / 2) * 0.23e6
             else:
                 x_mark = n_fail * (1.052 ** (i - (k - 1) / 2))
-            ax.plot([x_last, x_mark], [y_last, y_fail], color=colour, lw=0.9,
+            ax.plot([x_last, x_mark], [y_last, y_fail], color=color, lw=0.9,
                     ls=(0, (1, 2)), zorder=2, alpha=0.7)
-            ax.plot([x_mark], [y_fail], marker="x", ms=8, mew=2.2, color=colour,
+            ax.plot([x_mark], [y_fail], marker="x", ms=8, mew=2.2, color=color,
                     zorder=5, linestyle="none", clip_on=False)
     return any_data
 
@@ -784,7 +784,7 @@ def save(fig, out):
 
     Three formats, and no JPEG. The .pdf and .svg are vector -- no resolution at
     all, exact at any magnification -- and are what the paper embeds. The .png
-    is the raster copy at 600 dpi, for the README: lossless, so thin coloured
+    is the raster copy at 600 dpi, for the README: lossless, so thin colored
     line art carries no codec artifacts, and the format GitHub renders most
     predictably. JPEG was dropped once nothing referenced it: it was 3.4 MB
     against the PDF's 41 KB for a strictly worse image, and it churned on every

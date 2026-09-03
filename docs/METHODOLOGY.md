@@ -24,14 +24,14 @@ state that is computed.** It cost a 7x slowdown before it was found.
 
 ### 1.1 The overflow that motivates the design
 
-The natural way to write the recomposition is in terms of an unnormalised
+The natural way to write the recomposition is in terms of an unnormalized
 numerator and denominator. For a subproblem `i` with local scores `R_i`,
 
 ```
 Num_i = exp(R_i) V_i ,    Den_i = rowsum(exp(R_i)) ,    O = (sum_i Num_i) / (sum_i Den_i)
 ```
 
-and since a local kernel typically returns the *normalised* output `out_i` and a
+and since a local kernel typically returns the *normalized* output `out_i` and a
 log-sum-exp `lse_i`, one reconstructs `Den_i = exp(lse_i)` and
 `Num_i = out_i * Den_i`.
 
@@ -45,11 +45,11 @@ appears as `dNum = dO/Den` and `dDen = -rowsum(dO . Num)/Den^2`, so the failure
 mode there is **silently wrong gradients**, which is worse than wrong
 activations because training degrades slowly and the model gets the blame.
 
-Every decision below follows from refusing to materialise that quantity.
+Every decision below follows from refusing to materialize that quantity.
 
 ### 1.2 Forward: a max-shifted merge over `(acc, l, m)`
 
-Each subproblem returns three statistics rather than a normalised output:
+Each subproblem returns three statistics rather than a normalized output:
 
 | symbol | shape | meaning |
 |---|---|---|
@@ -70,7 +70,7 @@ Both exponents are `<= 0` by construction, so every intermediate lies in
 `(0, 1]`. The output `O = acc / l` and the global log-sum-exp
 `lse = m + log(l)` are formed once, at the end. **`exp(lse)` is never
 computed**, at any point, for any subproblem. This is the standard online-softmax
-recurrence; the contribution here is recognising that the *decomposition
+recurrence; the contribution here is recognizing that the *decomposition
 framework*, not just the inner kernel, has to be written in these terms — a
 framework that consumes `out_i` and `lse_i` has already lost the property.
 
@@ -182,7 +182,7 @@ A subsequence can legitimately retain no keys for some query row. The natural
 sentinel is `lse = -inf` (or `m = -inf`), but a merge that re-bases onto
 `m' = max(m, m_i)` then evaluates `exp(-inf - (-inf))`, which is NaN, and one
 NaN destroys the row. Contributions whose statistics are non-finite are
-therefore normalised to "no contribution" before merging. This was not
+therefore normalized to "no contribution" before merging. This was not
 hypothetical: an `+inf` sentinel silently erased 586 of 2048 token rows before it
 was caught.
 
@@ -361,7 +361,7 @@ cannot silently produce a wrong answer on an unsorted path.
 
 **Mixed-dtype accumulation.** `fp32_acc.add_(fp16_src)` promotes to the
 accumulator dtype and is **bit-identical** to `add_(src.float())`, but avoids
-materialising a full-size fp32 temporary: 1.86x on the add at L=12036.
+materializing a full-size fp32 temporary: 1.86x on the add at L=12036.
 
 ---
 

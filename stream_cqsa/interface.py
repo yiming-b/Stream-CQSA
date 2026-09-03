@@ -216,7 +216,7 @@ def flash_attn_func_cqs_group_bits(
     cqs_blk_or = cqs_blk_or.to(device=q.device, dtype=torch.int64).contiguous()
     cqs_blk_and = cqs_blk_and.to(device=q.device, dtype=torch.int64).contiguous()
 
-    # fp32 copy of the normalised output. The kernel holds acc_o in fp32
+    # fp32 copy of the normalized output. The kernel holds acc_o in fp32
     # registers anyway; the stock epilogue rounds it to the input dtype, and
     # that rounding is ~83% of a subproblem's error.
     # With segmented input q is a strided view over a LONGER tensor, so

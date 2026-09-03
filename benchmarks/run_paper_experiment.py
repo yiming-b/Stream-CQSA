@@ -279,7 +279,7 @@ def run_method(key, q, k, v, dout, *, causal, scale, direction, itr, trace_on):
         # itr=1 does not fit. Two separate mechanisms would otherwise rescue it
         # and file the rescue under the requested depth: the library refines a
         # subproblem that will not fit, and the runner retries the whole backward
-        # a level deeper. Both are the right behaviour for a library and wrong for
+        # a level deeper. Both are the right behavior for a library and wrong for
         # a measurement, so a fixed depth turns both off and an out-of-memory
         # result is reported as one.
         fixed_depth = str(itr) != "auto"
@@ -295,7 +295,7 @@ def run_method(key, q, k, v, dout, *, causal, scale, direction, itr, trace_on):
         # monolithic forward (37 GiB) looks affordable, so it returns itr=0, and
         # the *backward* at that depth then OOMs even though itr=1 completes.
         # Escalate on failure rather than recording a defeat the method does not
-        # actually suffer: this is also the behaviour the paper claims (`itr`
+        # actually suffer: this is also the behavior the paper claims (`itr`
         # rises as the budget tightens), so measuring anything else would be
         # measuring the planner's blind spot instead of the method.
         def _forward_escalating(kw):

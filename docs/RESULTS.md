@@ -63,7 +63,7 @@ Per-gradient breakdown (fp16, mean over seeds):
 
 The axis that does vary is **where the fp32 accumulator lives**:
 
-| | accumulator | behaviour |
+| | accumulator | behavior |
 |---|---|---|
 | `acc=GPU` | device | faster, but the accumulator is an O(N) *device* term that no depth of decomposition shrinks — so it OOMs first, and it OOMs **in the accumulation phase** rather than in the attention kernel |
 | `acc=CPU` | host | slower per subproblem, but removes that term entirely and so survives to the largest N — the safe default |

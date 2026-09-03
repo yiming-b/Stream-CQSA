@@ -22,11 +22,11 @@ The shipped path (``attention_kernel/FA.py`` + the ``index_add_`` merge in
         9.0       440.0    878/878
 
 That is silent wrong output, not a crash. Scores of that size are ordinary for
-un-normalised activations, so this is a real correctness bug rather than a
+un-normalized activations, so this is a real correctness bug rather than a
 theoretical one.
 
 This module keeps every contribution in *max-shifted* coordinates and never
-materialises ``exp(lse)``. It uses the compatibility contract from the design
+materializes ``exp(lse)``. It uses the compatibility contract from the design
 note: a FlashAttention result ``(out_i, lse_i)`` is merged as
 
     local_m = lse_i,  local_l = 1,  local_acc = out_i
@@ -183,7 +183,7 @@ class StableAccumulator:
         Merge a FlashAttention-style subproblem result.
 
         idx   : [L] global token ids (distinct within a subproblem)
-        out_i : [B, L, H, D] normalised local output (FA layout)
+        out_i : [B, L, H, D] normalized local output (FA layout)
         lse_i : [B, L, H] local log-sum-exp
         """
         self._merge(idx, out_i, torch.ones_like(lse_i), lse_i)
@@ -349,7 +349,7 @@ def is_oom(exc: BaseException) -> bool:
     Matching on the message alone misses an OutOfMemoryError whose text does not
     contain the usual phrase, and matching on the type alone misses the plain
     RuntimeError that some allocation paths and inner kernels raise. The
-    recovery has to see both, since anything it fails to recognise is re-raised
+    recovery has to see both, since anything it fails to recognize is re-raised
     to the caller instead of being recovered from.
     """
     return isinstance(exc, torch.cuda.OutOfMemoryError) or \
@@ -1661,7 +1661,7 @@ def _global_dpsum(dout: torch.Tensor, out: torch.Tensor,
         # Slice per (b, h): dout/out are [B,H,N,D] contiguous, so dout[b, h] is
         # a contiguous [N,D] block and a chunk of it is a straight DMA. Slicing
         # [:, :, s0:e0] instead spans all heads and is non-contiguous, which
-        # makes .to(device) materialise a host-side contiguous copy first --
+        # makes .to(device) materialize a host-side contiguous copy first --
         # measured 2195 ms at N=262144 versus the transfer alone.
         for bi in range(B):
             for hi in range(H):
@@ -1805,7 +1805,7 @@ def _stream_cqsa_backward_host(
             #
             # add_ takes the fp16/bf16 source directly: the in-place add
             # promotes to the fp32 accumulator's dtype, which is bit-identical
-            # to .float() but skips materialising a full-size fp32 temporary
+            # to .float() but skips materializing a full-size fp32 temporary
             # (measured 1.86x at L=12036, break-even once the copy is large
             # enough to be bandwidth-bound anyway).
             src = buf[:n_el].view(B, Lloc, H, D)
@@ -2007,7 +2007,7 @@ def stream_cqsa_backward(
     is exact on the retained pair set. No ``exp(lse)``, no ``Num``/``Den``.
 
     This is the global-lse form of Algorithm `algo:bwd`. It is algebraically
-    the same backward, but it never materialises ``Num``/``Den``: with
+    the same backward, but it never materializes ``Num``/``Den``: with
     ``Den = exp(lse)`` the literal form overflows fp32 once ``lse > 88.7``, and
     ``P_i = exp(R_i)`` overflows whenever any retained score exceeds 88.7.
     Substituting ``Num = Den * O`` and folding ``Den`` into ``P`` turns every

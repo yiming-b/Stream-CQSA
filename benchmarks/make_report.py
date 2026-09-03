@@ -158,7 +158,7 @@ w("**The Stream-CQSA rows are all streamed** (host-resident Q/K/V) — that is w
 w()
 w("The axis that does vary is **where the fp32 accumulator lives**:")
 w()
-w("| | accumulator | behaviour |")
+w("| | accumulator | behavior |")
 w("|---|---|---|")
 w("| `acc=GPU` | device | faster, but the accumulator is an O(N) *device* term "
   "that no depth of decomposition shrinks — so it OOMs first, and it OOMs **in "

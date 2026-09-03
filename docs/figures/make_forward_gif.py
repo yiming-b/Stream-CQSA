@@ -17,7 +17,7 @@ Layout, left to right:
   * the global 7x7 map, filling in as the traversal proceeds
 
 Colour encodes subproblem index as a single-hue lightness ramp rather than seven
-separate hues: the index is ordered, one hue stays legible under colour-vision
+separate hues: the index is ordered, one hue stays legible under color-vision
 deficiency and in greyscale, and the current subproblem is picked out by a warm
 outline instead of by a hue of its own.
 """
@@ -79,7 +79,7 @@ def rr(d, box, fill, outline=None, width=2, r=6):
     d.rounded_rectangle(box, radius=r, fill=fill, outline=outline, width=width)
 
 
-def centre(d, xy, text, font, fill):
+def center(d, xy, text, font, fill):
     x, y = xy
     l, t, rgt, b = d.textbbox((0, 0), text, font=font)
     d.text((x - (rgt - l) / 2 - l, y - (b - t) / 2 - t), text, font=font, fill=fill)
@@ -118,10 +118,10 @@ def frame(step):
         fill = ACC_SOF if inq else EMPTY
         outl = ACCENT if inq else GRID
         rr(d, [bx, y0 - lift, bx + cw, y0 + ch - lift], fill, outl, (3 if own else 2) * s, 5 * s)
-        centre(d, (bx + cw / 2, y0 + ch / 2 - lift), f"C{k}", f_cell,
+        center(d, (bx + cw / 2, y0 + ch / 2 - lift), f"C{k}", f_cell,
                ACCENT if inq else INK3)
         if own:
-            centre(d, (bx + cw / 2, y0 + ch + 14 * s - lift), "owner", f_small, ACCENT)
+            center(d, (bx + cw / 2, y0 + ch + 14 * s - lift), "owner", f_small, ACCENT)
     d.text((x0, y0 + ch + 30 * s),
            (f"subsequence {step}  =  concat(C{q[0]}, C{q[1]}, C{q[2]})" if active
             else ("all 7 subproblems complete" if step >= C else "7 chunks, 49 chunk pairs")),
@@ -144,9 +144,9 @@ def frame(step):
                            fill=INK3, width=2 * s)
                     d.line([bx + lc - 3 * s - m, by + m, bx + m, by + lc - 3 * s - m],
                            fill=INK3, width=2 * s)
-            centre(d, (lx - 14 * s, ly + r_ * lc + lc / 2 - 2 * s), f"C{a}", f_small, INK3)
+            center(d, (lx - 14 * s, ly + r_ * lc + lc / 2 - 2 * s), f"C{a}", f_small, INK3)
         for c_, b in enumerate(q):
-            centre(d, (lx + c_ * lc + lc / 2 - 2 * s, ly - 11 * s), f"C{b}", f_small, INK3)
+            center(d, (lx + c_ * lc + lc / 2 - 2 * s, ly - 11 * s), f"C{b}", f_small, INK3)
         d.text((44 * s, ly + 3 * lc + 18 * s),
                "keeps 7 of 9:  the 6 off-diagonal pairs, plus its own diagonal.",
                font=f_small, fill=INK2)
@@ -170,8 +170,8 @@ def frame(step):
     gx, gy, gc = 622 * s, 152 * s, 56 * s
     d.text((600 * s, 112 * s), "3.  scatter into the attention map", font=f_head, fill=INK)
     for a in range(C):
-        centre(d, (gx - 16 * s, gy + a * gc + gc / 2 - 2 * s), f"C{a}", f_small, INK3)
-        centre(d, (gx + a * gc + gc / 2 - 2 * s, gy - 11 * s), f"C{a}", f_small, INK3)
+        center(d, (gx - 16 * s, gy + a * gc + gc / 2 - 2 * s), f"C{a}", f_small, INK3)
+        center(d, (gx + a * gc + gc / 2 - 2 * s, gy - 11 * s), f"C{a}", f_small, INK3)
     for a in range(C):
         for b in range(C):
             o = OWNER[(a, b)]
@@ -184,7 +184,7 @@ def frame(step):
             else:                                        # not yet
                 rr(d, box, EMPTY, GRID, 2 * s, 4 * s)
             if step >= C or o <= (step if active else -1):
-                centre(d, (bx + (gc - 3 * s) / 2, by + (gc - 3 * s) / 2), str(o),
+                center(d, (bx + (gc - 3 * s) / 2, by + (gc - 3 * s) / 2), str(o),
                        f_small, (255, 255, 255) if o >= 3 else (40, 60, 85))
 
     # ------------------------------------------------------------- counter --

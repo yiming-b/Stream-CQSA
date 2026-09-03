@@ -3,7 +3,7 @@ Python port of the data-viz palette validator (six checks, OKLab/Machado).
 
 The cluster has no node runtime, and this must be computed rather than
 eyeballed: the whole point of the check is that adjacent-pair separation under
-simulated colour-vision deficiency is not something you can judge by looking.
+simulated color-vision deficiency is not something you can judge by looking.
 Thresholds, the Machado-Oliveira-Fernandes severity-1.0 matrices and the check
 definitions are transcribed from scripts/validate_palette.js unchanged.
 

@@ -278,7 +278,7 @@ def test_forward_reference_stable_under_large_scores(std, causal):
     """
     The stable merge must hold up where naive ``exp(lse)`` accumulation
     overflows fp32. With std=12 and D=32 the row logsumexp lands far above
-    log(3.4e38) ~= 88.7, so any implementation that materialises exp(lse)
+    log(3.4e38) ~= 88.7, so any implementation that materializes exp(lse)
     returns inf/NaN (or silently zero after nan_to_num).
     """
     q, k, v = _qkv(1, 1, 29, 32, device="cpu", seed=3, std=std)
