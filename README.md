@@ -132,7 +132,7 @@ comparison, both paths returning fp32 — lands within **0.3%** of the baselines
 and barely moves between `itr=1` and `itr=2`, so error does not compound as
 subproblems are merged. Its seed-to-seed spread coincides too (1.0–1.2% in fp16
 for every method), which is the stronger statement: not just the same answer on
-average, but the same behaviour draw by draw. The forward is **1.58× better**
+average, but the same behavior draw by draw. The forward is **1.58× better**
 only because Stream-CQSA accumulates and returns fp32 where the baselines round
 the output to fp16; cast it down and the two agree — though it does vary more
 across seeds there (7.8–8.6% against the baselines' 3.0–5.6%).
@@ -333,6 +333,14 @@ Three entry points. Pick by what you are doing.
 | A model that runs out of memory at long context, and you want it to survive | `attention_oom_safe` | Tries the normal path first and falls back only when it raises OOM, so it costs nothing while SDPA still fits. |
 | Training, and you need `.backward()` | `stream_cqsa_attn`, or `StreamCQSAAttention` as a module | A real `torch.autograd.Function`. Gradients flow through it like any other op. |
 | Benchmarking, or you want the depth pinned and nothing moved behind your back | `stream_cqsa_forward` + `stream_cqsa_backward` | Lowest level. You get the plan back and keep your tensors where you put them. |
+
+### Just want to see what it does?
+
+[`notebooks/demo_oom_recovery.ipynb`](notebooks/demo_oom_recovery.ipynb) needs
+**no install** — not even this package. It is three cells of plain PyTorch: a
+textbook attention kernel runs out of memory at `N=16384`, the same kernel
+decomposed with a cyclic quorum set completes in 1.66 GiB, and the two are
+checked against each other. It ships executed, so you can read it without a GPU.
 
 ### Replacing `scaled_dot_product_attention`
 
@@ -628,6 +636,14 @@ jupyter lab notebooks/
 All of them ship already executed, so the outputs are readable without a GPU.
 Re-running any cell needs one.
 
+**Start here, no install needed:**
+[`notebooks/demo_oom_recovery.ipynb`](notebooks/demo_oom_recovery.ipynb) is
+self-contained — plain PyTorch, no `stream_cqsa` import, no compiled extension.
+Three cells: requirements, every definition in about 120 lines, and one
+`run_demo(...)` call that shows a naive kernel failing at `N=16384`, the
+decomposition completing the same length in 1.66 GiB, and the two agreeing to
+fp16 rounding. Edit the call to try other `N`, `C` and interest sets.
+
 **Interactive walkthrough:** [`docs/demo/index.html`](docs/demo/index.html) steps through the
 whole algorithm — decomposition, quorum selection, gather, masking, the
 `(acc, l, m)` merge, and the backward pass — recomputing live as you change `c`,
@@ -665,7 +681,7 @@ published tables.
 
 ### Why it does not overflow
 
-Recomposing through unnormalised numerators and denominators — reconstructing
+Recomposing through unnormalized numerators and denominators — reconstructing
 `Den_i = exp(lse_i)` — is algebraically correct and numerically unusable: `exp`
 overflows fp32 at `lse > 88.72`, and `lse` grows with sequence length, which is
 exactly the regime this method exists for. Past that you get `inf/inf` — zeros
