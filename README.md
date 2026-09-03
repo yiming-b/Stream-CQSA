@@ -324,14 +324,81 @@ head-dim 64, **non-causal only**.)
 
 ---
 
+## Getting started
+
+Three entry points. Pick by what you are doing.
+
+| your situation | use | why |
+|:---|:---|:---|
+| A model that runs out of memory at long context, and you want it to survive | `attention_oom_safe` | Tries the normal path first and falls back only when it raises OOM, so it costs nothing while SDPA still fits. |
+| Training, and you need `.backward()` | `stream_cqsa_attn`, or `StreamCQSAAttention` as a module | A real `torch.autograd.Function`. Gradients flow through it like any other op. |
+| Benchmarking, or you want the depth pinned and nothing moved behind your back | `stream_cqsa_forward` + `stream_cqsa_backward` | Lowest level. You get the plan back and keep your tensors where you put them. |
+
+### Replacing `scaled_dot_product_attention`
+
+The smallest change that buys you something. Swap the call, keep everything
+else:
+
+```python
+from stream_cqsa import attention_oom_safe
+
+# was: out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+out = attention_oom_safe(q, k, v, causal=True, release_inputs=True)
+```
+
+`release_inputs=True` permits moving Q/K/V into host memory during recovery.
+Leave it off and inputs that do not fit **cannot** be recovered, which is
+usually the case you installed this for.
+
+For training, swap in the autograd operator instead:
+
+```python
+from stream_cqsa import stream_cqsa_attn
+
+out = stream_cqsa_attn(q, k, v, causal=True)   # [B, H, N, D]
+out.backward(dout)                             # dq, dk, dv, as usual
+```
+
+Its defaults are the faster, less frugal ones. For the reach reported above —
+16M tokens on one 80 GiB card — pass `stream_from_host=True,
+accumulate_on_gpu=False`.
+
+**Do not put Stream-CQSA on the fast path.** Below the memory boundary it costs
+1.5–2.4× FlashAttention-2. It exists to return a result where the
+monolithic call cannot, not to be quicker than one that fits.
+
+### Three differences from SDPA that will bite you
+
+1. **Shapes are `[B, H, N, D]`.** Not `[B, N, H, D]`.
+2. **fp16 or bf16 only.** The kernel rejects fp32, which SDPA accepts. Call
+   `.half()` or `.bfloat16()` first.
+3. **`stream_cqsa_auto` relocates `q`/`k`/`v` to host memory in place.** That
+   relocation is what frees the device allocation, so anything that still needs
+   them on the device has to run *before* the call. The other entry points do
+   not do this. See [`examples/quickstart.py`](examples/quickstart.py).
+
+### Run the tutorial
+
+```bash
+pip install -e ".[bench]"     # matplotlib, tqdm -- both lazily imported
+pip install jupyter
+jupyter lab notebooks/tutorial_stream_cqsa_v2.ipynb
+```
+
+The notebook finds the package by walking up from its own directory, so it runs
+from a source checkout without reinstalling. Every cell allocates on `cuda`, so
+it needs a real GPU — but it ships already executed, so you can read the numbers
+without one. [Notebooks](#notebooks) describes the others.
+
+---
+
 ## Usage
 
-Tensors are `[B, H, N, D]`. Three entry points. **The explicit one is the one to
-reach for first** — it is the fast path, and it is what the benchmarks measure.
-If you are training a model rather than benchmarking one, use
-[the autograd operator](#autograd-and-backward) and call `.backward()` as usual.
+Reference for all three entry points. If you just want to get running,
+[Getting started](#getting-started) says which one to pick; this section is the
+detail behind that choice. Tensors are `[B, H, N, D]` throughout.
 
-### Explicit control (preferred)
+### Explicit control
 
 ```python
 from stream_cqsa import stream_cqsa_forward, stream_cqsa_backward
@@ -552,6 +619,14 @@ value, and tracing the time/memory trade curve (as the tables above do).
 | `c`, `interest_set` | CQS parameters. Defaults `c=7`, `(0,1,3)` — a λ=1 Singer difference set. |
 
 ### Notebooks
+
+```bash
+pip install -e ".[bench]" && pip install jupyter
+jupyter lab notebooks/
+```
+
+All of them ship already executed, so the outputs are readable without a GPU.
+Re-running any cell needs one.
 
 **Interactive walkthrough:** [`docs/demo/index.html`](docs/demo/index.html) steps through the
 whole algorithm — decomposition, quorum selection, gather, masking, the
